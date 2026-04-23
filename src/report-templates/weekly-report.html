@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>주간보고 템플릿</title>
+    <link rel="stylesheet" href="./weekly-report.css">
+</head>
+<body>
+<main class="reportCanvas">
+    <section class="reportSheet">
+        <header class="reportHeader">
+            <div>
+                <h1>주간 업무 일지</h1>
+                <p class="reportDate" id="weeklyReportPeriod">-</p>
+            </div>
+            <dl class="reportMeta">
+                <div>
+                    <dt>작성일</dt>
+                    <dd id="weeklyReportMetaDate">-</dd>
+                </div>
+                <div>
+                    <dt>작성자</dt>
+                    <dd id="weeklyReportAuthor"></dd>
+                </div>
+                <div>
+                    <dt>부서</dt>
+                    <dd id="weeklyReportDepartment"></dd>
+                </div>
+                <div>
+                    <dt>직급</dt>
+                    <dd id="weeklyReportPosition"></dd>
+                </div>
+            </dl>
+        </header>
+
+        <section class="reportSection">            
+            <div class="reportTableWrap">
+                <table class="dailyReportTable">
+                    <colgroup>
+                        <col class="dailyReportTable__col dailyReportTable__col--time">
+                        <col class="dailyReportTable__col dailyReportTable__col--task">
+                        <col class="dailyReportTable__col dailyReportTable__col--status">
+                        <col class="dailyReportTable__col dailyReportTable__col--note">
+                    </colgroup>
+                    <thead class="dailyReportTable__head">
+                    <tr class="dailyReportTable__row dailyReportTable__row--head">
+                        <th class="dailyReportTable__heading" scope="col"></th>
+                        <th class="dailyReportTable__heading" scope="col">지난 주 업무 실천 내용</th>
+                        <th class="dailyReportTable__heading" scope="col">상태</th>
+                        <th class="dailyReportTable__heading" scope="col">비고</th>
+                    </tr>
+                    </thead>
+                    <tbody class="dailyReportTable__body" id="weeklyReportTableBody">
+                    <tr class="dailyReportTable__row">
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--task"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell"></td>
+                    </tr>
+                    <tr class="dailyReportTable__row">
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--task"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell"></td>
+                    </tr>
+                    <tr class="dailyReportTable__row">
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--task"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell"></td>
+                    </tr>
+                    <tr class="dailyReportTable__row">
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--task"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell"></td>
+                    </tr>
+                    <tr class="dailyReportTable__row">
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--task"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell"></td>
+                    </tr>
+                    <tr class="dailyReportTable__row">
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--task"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell"></td>
+                    </tr>
+                    <tr class="dailyReportTable__row">
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--task"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell"></td>
+                    </tr>
+                    <tr class="dailyReportTable__row">
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--task"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell"></td>
+                    </tr>
+                    <tr class="dailyReportTable__row">
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--task"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell"></td>
+                    </tr>
+                    <tr class="dailyReportTable__row">
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--task"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell"></td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="reportSection">           
+            <div class="reportTableWrap">
+                <table class="dailyReportTable">
+                    <colgroup>
+                        <col class="dailyReportTable__col dailyReportTable__col--time">
+                        <col class="dailyReportTable__col dailyReportTable__col--task">
+                        <col class="dailyReportTable__col dailyReportTable__col--status">
+                        <col class="dailyReportTable__col dailyReportTable__col--note">
+                    </colgroup>
+                    <thead class="dailyReportTable__head">
+                    <tr class="dailyReportTable__row dailyReportTable__row--head">
+                        <th class="dailyReportTable__heading" scope="col"></th>
+                        <th class="dailyReportTable__heading" scope="col">이번 주 업무 계획</th>
+                        <th class="dailyReportTable__heading" scope="col">완료예정일</th>
+                        <th class="dailyReportTable__heading" scope="col">비고</th>
+                    </tr>
+                    </thead>
+                    <tbody class="dailyReportTable__body" id="weeklyReportPlanTableBody">
+                    <tr class="dailyReportTable__row">
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--task"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell"></td>
+                    </tr>
+                    <tr class="dailyReportTable__row">
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--task"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell"></td>
+                    </tr>
+                    <tr class="dailyReportTable__row">
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--task"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell"></td>
+                    </tr>
+                    <tr class="dailyReportTable__row">
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--task"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell"></td>
+                    </tr>
+                    <tr class="dailyReportTable__row">
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--task"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell"></td>
+                    </tr>
+                    <tr class="dailyReportTable__row">
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--task"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell"></td>
+                    </tr>
+                    <tr class="dailyReportTable__row">
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--task"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell"></td>
+                    </tr>
+                    <tr class="dailyReportTable__row">
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--task"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell"></td>
+                    </tr>
+                    <tr class="dailyReportTable__row">
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--task"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell"></td>
+                    </tr>
+                    <tr class="dailyReportTable__row">
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--task"></td>
+                        <td class="dailyReportTable__cell dailyReportTable__cell--center"></td>
+                        <td class="dailyReportTable__cell"></td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="reportSection">
+            <div class="reportSectionHeader">
+                <h2>특이사항</h2>
+            </div>
+            <div class="reportTextBlock">
+                <p id="weeklyReportNotes"></p>
+            </div>
+        </section>
+    </section>
+</main>
+</body>
+</html>

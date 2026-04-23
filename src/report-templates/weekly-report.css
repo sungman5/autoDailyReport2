@@ -1,0 +1,276 @@
+@import "https://hangeul.pstatic.net/hangeul_static/css/nanum-myeongjo.css";
+
+:root {
+    color-scheme: light;
+    --page-bg: #eef2f6;
+    --sheet-bg: #ffffff;
+    --sheet-line: #d4dbe3;
+    --table-line: #aeb9c4;
+    --table-line-strong: #7d8b98;
+    --text-strong: #15202b;
+    --text-base: #415160;
+    --text-soft: #6b7a88;
+    --accent: #1f5f8b;
+    --accent-soft: #eef5fb;
+    --shadow: 0 24px 60px rgba(17, 33, 48, 0.12);
+    --report-sheet-padding: 14mm 12mm 12mm;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    min-height: 100%;
+    color: var(--text-strong);
+    font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+    background: radial-gradient(circle at top left, rgba(255, 255, 255, 0.95), transparent 28%),
+    linear-gradient(180deg, #f7fafc, var(--page-bg));
+}
+
+body {
+    padding: 28px 18px;
+}
+
+.reportCanvas {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+}
+
+.reportSheet {
+    width: 210mm;
+    max-width: 100%;
+    min-height: 297mm;
+    padding: var(--report-sheet-padding);
+    border: 1px solid var(--sheet-line);
+    background: var(--sheet-bg);
+    box-shadow: var(--shadow);
+}
+
+#weeklyReportPeriod {
+    font-size: 14px;
+}
+
+.reportHeader {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    padding-bottom: 16px;
+}
+
+.reportHeader h1 {
+    margin: 0;
+    font-size: 2.8rem;
+    line-height: 1.15;
+    letter-spacing: -0.04em;
+    font-family: "NanumMyeongjoBold";
+}
+
+.reportDate {
+    font-size: 0.98rem;
+    color: var(--text-soft);
+}
+
+.reportMeta {
+    padding-top: 0;
+    margin-top: 0;
+}
+
+.reportMeta div {
+    display: flex;
+    border-bottom: 1px dotted #000;
+    padding-block: 2mm;
+}
+
+.reportMeta div dt {
+    flex: 1;
+    text-align: justify;
+}
+
+.reportMeta div dd {
+    flex: 3;
+}
+
+.reportSection {
+    margin-top: 20px;
+}
+
+.reportSectionHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 16px;
+    margin-bottom: 10px;
+}
+
+.reportSectionHeader h2 {
+    margin: 0;
+    font-size: 1.06rem;
+}
+
+.reportSectionHeader p {
+    margin: 0;
+    font-size: 0.82rem;
+    color: var(--text-soft);
+}
+
+.reportTableWrap {
+    border: 1px solid var(--table-line-strong);
+}
+
+.reportTextBlock {
+    min-height: 72px;
+    padding: 12px 14px;
+    border: 1px solid var(--table-line-strong);
+    font-size: 0.9rem;
+    line-height: 1.7;
+}
+
+.reportTextBlock p {
+    min-height: 48px;
+    margin: 0;
+    color: var(--text-base);
+    white-space: pre-wrap;
+}
+
+.dailyReportTable {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+
+.dailyReportTable__col--time {
+    width: 5%;
+}
+
+.dailyReportTable__col--task {
+    width: 40%;
+}
+
+.dailyReportTable__col--status {
+    width: 13%;
+}
+
+.dailyReportTable__col--note {
+    width: 40%;
+}
+
+.dailyReportTable__heading,
+.dailyReportTable__cell {
+    border: 1px solid var(--table-line);
+    padding: 4px 8px;
+    font-size: 15px;
+    color: #000;
+    font-weight: normal;
+    line-height: 1.5;
+    text-align: center;
+    vertical-align: top;
+    word-break: keep-all;
+}
+
+.dailyReportTable__heading {
+    padding: 11px 9px;
+    background: var(--accent-soft);
+    font-weight: bold;
+}
+
+.dailyReportTable__cell--center {
+    text-align: center;
+    vertical-align: middle;
+}
+
+.dailyReportTable__cell--task {
+    text-align: left;
+    vertical-align: middle;
+    color: #000;
+}
+
+.dailyReportTable__cell--category {
+    color: #000;
+    font-weight: normal;
+}
+
+.dailyReportTable__body .dailyReportTable__row .dailyReportTable__cell:nth-child(4) {
+    font-size: 13px;
+    font-weight: normal;
+    text-align: left;
+}
+
+.dailyReportTaskContent {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.dailyReportTaskContent--child svg {
+    flex: 0 0 auto;
+    width: 14px;
+    height: 14px;
+}
+
+@page {
+    size: A4;
+    margin: 0;
+}
+
+@media print {
+    html,
+    body {
+        background: #ffffff;
+    }
+
+    body {
+        padding: 0;
+    }
+
+    .reportSheet {
+        width: 210mm;
+        min-height: 297mm;
+        margin: 0;
+        border: 0;
+        box-shadow: none;
+    }
+
+    .reportSection,
+    .reportTextBlock,
+    .dailyReportTable__row {
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
+
+    .reportSectionHeader {
+        break-after: avoid;
+        page-break-after: avoid;
+    }
+
+    .dailyReportTable__head {
+        display: table-header-group;
+    }
+}
+
+@media (max-width: 960px) {
+    body {
+        padding: 16px;
+    }
+
+    .reportSheet {
+        width: 100%;
+        min-height: auto;
+    }
+
+    .reportHeader,
+    .reportSectionHeader {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .reportMeta {
+        min-width: 0;
+        width: 100%;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
