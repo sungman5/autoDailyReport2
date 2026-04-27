@@ -200,6 +200,10 @@ body {
     text-align: left;
 }
 
+.dailyReportTable__row--empty .dailyReportTable__cell {
+    padding-block: 12px;
+}
+
 .dailyReportTaskContent {
     display: inline-flex;
     align-items: center;

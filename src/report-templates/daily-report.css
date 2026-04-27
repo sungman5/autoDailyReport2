@@ -199,6 +199,10 @@ body {
     word-break: unset;
 }
 
+.dailyReportTable__row--empty .dailyReportTable__cell {
+    padding-block: 12px;
+}
+
 .dailyReportTaskContent {
     display: inline-flex;
     align-items: center;

@@ -42,6 +42,7 @@ const DAILY_REPORT_CHILD_TASK_ICON = `
 `
 const WEEKLY_REPORT_NOTE_PREVIEW_LIMIT = 3
 const DAILY_REPORT_AUTO_SEND_RETRY_DELAY_MS = 60 * 1000
+const MIN_REPORT_GROUP_ROWS = 5
 
 const dailyLogState = {
   selectedCategoryId: null,
@@ -418,6 +419,8 @@ function getReportMemoModalElements() {
     title: document.querySelector("#reportMemoModalTitle"),
     keyTasksField: document.querySelector("#reportMemoKeyTasksField"),
     keyTasksInput: document.querySelector("#reportMemoKeyTasksInput"),
+    groupHomeNewsField: document.querySelector("#reportMemoGroupHomeNewsField"),
+    groupHomeNewsInput: document.querySelector("#reportMemoGroupHomeNewsInput"),
     specialNotesInput: document.querySelector("#reportMemoSpecialNotesInput"),
     closeButton: document.querySelector("#closeReportMemoModal"),
     confirmButton: document.querySelector("#confirmReportMemoModal")
@@ -1029,11 +1032,16 @@ function getWeeklyReportMemoKey() {
   return `${startDateText}_${endDateText}`
 }
 
+function isOverseasBusinessDepartment(department = userProfileState.department) {
+  return sanitizeProfileField(department) === "해외사업팀"
+}
+
 function getWeeklyReportMemo(periodKey = getWeeklyReportMemoKey()) {
   const memo = Object.hasOwn(weeklyReportMemoState.notesByPeriod, periodKey)
     ? weeklyReportMemoState.notesByPeriod[periodKey]
     : getLatestReportMemo(weeklyReportMemoState.notesByPeriod)
   return {
+    groupHomeNews: typeof memo?.groupHomeNews === "string" ? memo.groupHomeNews : "",
     specialNotes: typeof memo?.specialNotes === "string" ? memo.specialNotes : ""
   }
 }
@@ -1044,6 +1052,7 @@ function setWeeklyReportMemo(periodKey, memo = {}) {
   }
 
   weeklyReportMemoState.notesByPeriod[periodKey] = {
+    groupHomeNews: sanitizeProfileTextAreaField(memo.groupHomeNews),
     specialNotes: sanitizeProfileTextAreaField(memo.specialNotes)
   }
 }
@@ -1073,24 +1082,41 @@ function applyWeeklyReportMemoToFrame(frame = getReportPreviewModalElements().fr
     return
   }
 
+  const memo = getWeeklyReportMemo()
+  const groupHomeNewsSection = frameDocument.querySelector("#weeklyReportGroupHomeNewsSection")
+  const groupHomeNewsNode = frameDocument.querySelector("#weeklyReportGroupHomeNews")
   const notesNode = frameDocument.querySelector("#weeklyReportNotes")
+
+  if (groupHomeNewsSection) {
+    groupHomeNewsSection.hidden = !isOverseasBusinessDepartment()
+  }
+
+  if (groupHomeNewsNode) {
+    groupHomeNewsNode.textContent = memo.groupHomeNews
+  }
+
   if (notesNode) {
-    notesNode.textContent = getWeeklyReportMemo().specialNotes
+    notesNode.textContent = memo.specialNotes
   }
 }
 
 function syncReportMemoInputs() {
-  const { keyTasksInput, specialNotesInput } = getReportMemoModalElements()
-  if (!keyTasksInput || !specialNotesInput) {
+  const { keyTasksInput, groupHomeNewsField, groupHomeNewsInput, specialNotesInput } = getReportMemoModalElements()
+  if (!keyTasksInput || !groupHomeNewsField || !groupHomeNewsInput || !specialNotesInput) {
     return
   }
 
   if (reportPreviewState.reportType === "weekly") {
+    const memo = getWeeklyReportMemo()
     keyTasksInput.value = ""
-    specialNotesInput.value = getWeeklyReportMemo().specialNotes
+    groupHomeNewsField.hidden = !isOverseasBusinessDepartment()
+    groupHomeNewsInput.value = memo.groupHomeNews
+    specialNotesInput.value = memo.specialNotes
     return
   }
 
+  groupHomeNewsField.hidden = true
+  groupHomeNewsInput.value = ""
   const memo = getDailyReportMemo()
   keyTasksInput.value = memo.keyTasks
   specialNotesInput.value = memo.specialNotes
@@ -1118,13 +1144,14 @@ function flushReportMemoPersist() {
 }
 
 function updateReportMemoFromInputs() {
-  const { modal, keyTasksInput, specialNotesInput } = getReportMemoModalElements()
-  if (!modal || modal.hidden || !keyTasksInput || !specialNotesInput) {
+  const { modal, keyTasksInput, groupHomeNewsInput, specialNotesInput } = getReportMemoModalElements()
+  if (!modal || modal.hidden || !keyTasksInput || !groupHomeNewsInput || !specialNotesInput) {
     return
   }
 
   if (reportPreviewState.reportType === "weekly") {
     setWeeklyReportMemo(getWeeklyReportMemoKey(), {
+      groupHomeNews: groupHomeNewsInput.value,
       specialNotes: specialNotesInput.value
     })
     applyWeeklyReportMemoToFrame()
@@ -1146,10 +1173,21 @@ function openReportMemoModal() {
     title,
     keyTasksField,
     keyTasksInput,
+    groupHomeNewsField,
+    groupHomeNewsInput,
     specialNotesInput
   } = getReportMemoModalElements()
 
-  if (!modal || !title || !keyTasksField || !keyTasksInput || !specialNotesInput || !reportPreviewState.reportType) {
+  if (
+    !modal ||
+    !title ||
+    !keyTasksField ||
+    !keyTasksInput ||
+    !groupHomeNewsField ||
+    !groupHomeNewsInput ||
+    !specialNotesInput ||
+    !reportPreviewState.reportType
+  ) {
     return
   }
 
@@ -1158,9 +1196,14 @@ function openReportMemoModal() {
     ? "주간 보고서 메모"
     : "일일 보고서 메모"
   keyTasksField.hidden = reportPreviewState.reportType === "weekly"
+  groupHomeNewsField.hidden = reportPreviewState.reportType !== "weekly" || !isOverseasBusinessDepartment()
   syncReportMemoInputs()
   setReportMemoModalVisibility(true)
-  scheduleElementFocus(reportPreviewState.reportType === "weekly" ? specialNotesInput : keyTasksInput)
+  scheduleElementFocus(
+    reportPreviewState.reportType === "weekly"
+      ? (groupHomeNewsField.hidden ? specialNotesInput : groupHomeNewsInput)
+      : keyTasksInput
+  )
 }
 
 function openReportPreviewModal({ title, src, reportType, returnFocusElement }) {
@@ -1415,6 +1458,8 @@ function getWeeklyReportDateRange() {
   const now = new Date()
   const reportStartDate = new Date(now)
   reportStartDate.setHours(0, 0, 0, 0)
+  const daysSinceTuesday = (reportStartDate.getDay() - 2 + 7) % 7
+  reportStartDate.setDate(reportStartDate.getDate() - daysSinceTuesday)
 
   const reportEndDate = new Date(reportStartDate)
   reportEndDate.setDate(reportStartDate.getDate() + 6)
@@ -1425,6 +1470,24 @@ function getWeeklyReportDateRange() {
     endDate: reportEndDate,
     startDateText: formatDateAsText(reportStartDate),
     endDateText: formatDateAsText(reportEndDate)
+  }
+}
+
+function getWeeklyPlanDateRange() {
+  const { endDate } = getWeeklyReportDateRange()
+  const planStartDate = new Date(endDate)
+  planStartDate.setHours(0, 0, 0, 0)
+  planStartDate.setDate(planStartDate.getDate() + 1)
+
+  const planEndDate = new Date(planStartDate)
+  planEndDate.setDate(planStartDate.getDate() + 6)
+  planEndDate.setHours(23, 59, 59, 999)
+
+  return {
+    startDate: planStartDate,
+    endDate: planEndDate,
+    startDateText: formatDateAsText(planStartDate),
+    endDateText: formatDateAsText(planEndDate)
   }
 }
 
@@ -1526,13 +1589,27 @@ function shouldIncludeInWeeklyReport(item, startDateText, endDateText) {
   return isDateTextWithinRange(getItemLogDate(item), startDateText, endDateText)
 }
 
-function shouldIncludeInWeeklyPlan(item, reportEndDateText) {
+function shouldIncludeInWeeklyPlan(item, reportEndDateText, planStartDateText, planEndDateText) {
   if (item.dataset.isChecked === "true") {
     return false
   }
 
+  if (isRecurringDailyLogItem(item)) {
+    return true
+  }
+
+  const startDateText = getDailyLogItemStartDate(item)
   const endDateText = getDailyLogItemEndDate(item)
-  return !endDateText || endDateText > reportEndDateText
+
+  if (startDateText && planEndDateText && startDateText > planEndDateText) {
+    return false
+  }
+
+  return (
+    isDateTextWithinRange(startDateText, planStartDateText, planEndDateText) ||
+    !endDateText ||
+    endDateText > reportEndDateText
+  )
 }
 
 function compareItemsByCompletedOrder(a, b) {
@@ -1802,11 +1879,15 @@ function getWeeklyReportEntries() {
 
 function getCurrentWorkWeekPlanReportEntries() {
   const { endDateText } = getWeeklyReportDateRange()
+  const {
+    startDateText: planStartDateText,
+    endDateText: planEndDateText
+  } = getWeeklyPlanDateRange()
   const plannedItems = getDailyLogItems()
     .slice()
     .filter((item) =>
       !isDailyLogSnapshotItem(item) &&
-      shouldIncludeInWeeklyPlan(item, endDateText)
+      shouldIncludeInWeeklyPlan(item, endDateText, planStartDateText, planEndDateText)
     )
 
   return buildWeeklyCategorySummaryEntries(getSortedReportLogItems(plannedItems), {
@@ -1826,6 +1907,9 @@ function createDailyReportRow(frameDocument, entry) {
   row.className = entry?.rowKind === "category"
     ? "dailyReportTable__row dailyReportTable__row--category"
     : "dailyReportTable__row"
+  if (!entry) {
+    row.classList.add("dailyReportTable__row--empty")
+  }
 
   if (!entry?.isChildTask) {
     const numberCell = frameDocument.createElement("td")
@@ -1895,7 +1979,7 @@ function populateDailyReportFrame(frame) {
 
   const reportEntries = getTodayDailyReportEntries()
   const fragment = frameDocument.createDocumentFragment()
-  const rowCount = Math.max(10, reportEntries.length)
+  const rowCount = Math.max(MIN_REPORT_GROUP_ROWS, reportEntries.length)
 
   for (let index = 0; index < rowCount; index += 1) {
     fragment.append(createDailyReportRow(frameDocument, reportEntries[index] ?? null))
@@ -1929,7 +2013,7 @@ function populateWeeklyReportFrame(frame) {
   if (reportTableBody) {
     const reportEntries = getWeeklyReportEntries()
     const fragment = frameDocument.createDocumentFragment()
-    const rowCount = Math.max(10, reportEntries.length)
+    const rowCount = Math.max(MIN_REPORT_GROUP_ROWS, reportEntries.length)
 
     for (let index = 0; index < rowCount; index += 1) {
       fragment.append(createDailyReportRow(frameDocument, reportEntries[index] ?? null))
@@ -1944,7 +2028,7 @@ function populateWeeklyReportFrame(frame) {
 
   const planEntries = getCurrentWorkWeekPlanReportEntries()
   const planFragment = frameDocument.createDocumentFragment()
-  const planRowCount = Math.max(10, planEntries.length)
+  const planRowCount = Math.max(MIN_REPORT_GROUP_ROWS, planEntries.length)
 
   for (let index = 0; index < planRowCount; index += 1) {
     planFragment.append(createDailyReportRow(frameDocument, planEntries[index] ?? null))
@@ -2593,6 +2677,7 @@ function normalizeAppData(rawData) {
       }
 
       weeklyReportNotes[safePeriodKey] = {
+        groupHomeNews: sanitizeProfileTextAreaField(memo.groupHomeNews),
         specialNotes: sanitizeProfileTextAreaField(memo.specialNotes)
       }
     })
@@ -4173,12 +4258,13 @@ function bindReportMemoModal() {
   const {
     modal,
     keyTasksInput,
+    groupHomeNewsInput,
     specialNotesInput,
     closeButton,
     confirmButton
   } = getReportMemoModalElements()
 
-  if (!modal || !keyTasksInput || !specialNotesInput || !closeButton || !confirmButton) {
+  if (!modal || !keyTasksInput || !groupHomeNewsInput || !specialNotesInput || !closeButton || !confirmButton) {
     return
   }
 
@@ -4189,6 +4275,7 @@ function bindReportMemoModal() {
   }
 
   keyTasksInput.addEventListener("input", updateReportMemoFromInputs)
+  groupHomeNewsInput.addEventListener("input", updateReportMemoFromInputs)
   specialNotesInput.addEventListener("input", updateReportMemoFromInputs)
   closeButton.addEventListener("click", closeAndFocus)
   confirmButton.addEventListener("click", closeAndFocus)
