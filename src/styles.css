@@ -229,21 +229,6 @@ body > header h1 {
     gap: 10px;
 }
 
-.debugIdLabel {
-    display: inline-flex;
-    align-items: center;
-    height: 22px;
-    padding: 0 8px;
-    border: 1px dashed rgba(31, 31, 31, 0.12);
-    border-radius: 4px;
-    font-family: "Cascadia Code", Consolas, monospace;
-    font-size: 0.72rem;
-    line-height: 1;
-    color: #7a7a7a;
-    background: rgba(0, 0, 0, 0.02);
-    white-space: nowrap;
-}
-
 #categories .itemList {
     display: grid;
     gap: 6px;

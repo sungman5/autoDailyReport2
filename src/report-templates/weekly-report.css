@@ -218,7 +218,7 @@ body {
 
 @page {
     size: A4;
-    margin: 0;
+    margin: var(--report-sheet-padding);
 }
 
 @media print {
@@ -231,10 +231,16 @@ body {
         padding: 0;
     }
 
+    .reportCanvas {
+        display: block;
+    }
+
     .reportSheet {
-        width: 210mm;
-        min-height: 297mm;
+        width: auto;
+        max-width: none;
+        min-height: auto;
         margin: 0;
+        padding: 0;
         border: 0;
         box-shadow: none;
     }

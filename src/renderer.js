@@ -297,6 +297,7 @@ function upsertCategoryCount(item, completedCount, totalCount) {
 function updateCategoryCounts() {
   const categoryItems = Array.from(document.querySelectorAll("#categories > .itemList .item"))
   const dailyLogItems = getDailyLogItems()
+  const todayDateText = getTodayDateText()
 
   categoryItems.forEach((categoryItem) => {
     const categoryId = categoryItem.dataset.categoryId?.trim()
@@ -304,10 +305,15 @@ function updateCategoryCounts() {
       return
     }
 
-    const categoryDailyLogs = dailyLogItems.filter((item) =>
+    let categoryDailyLogs = dailyLogItems.filter((item) =>
       item.dataset.categoryId === categoryId &&
       !isDailyLogSnapshotItem(item)
     )
+
+    if (isRecurringCategoryId(categoryId)) {
+      categoryDailyLogs = categoryDailyLogs.filter((item) => getItemLogDate(item) === todayDateText)
+    }
+
     const totalCount = categoryDailyLogs.length
     const completedCount = categoryDailyLogs.filter((item) => item.dataset.isChecked === "true").length
     upsertCategoryCount(categoryItem, completedCount, totalCount)
@@ -323,24 +329,7 @@ function getItemTitleNode(item) {
 }
 
 function upsertDebugIdLabel(item) {
-  const categoryId = item.dataset.categoryId?.trim()
-  if (!categoryId) {
-    return
-  }
-
-  const titleNode = getItemTitleNode(item)
-  if (!titleNode) {
-    return
-  }
-
-  let debugIdLabel = item.querySelector(".debugIdLabel")
-  if (!debugIdLabel) {
-    debugIdLabel = document.createElement("span")
-    debugIdLabel.className = "debugIdLabel"
-    titleNode.insertAdjacentElement("afterend", debugIdLabel)
-  }
-
-  debugIdLabel.textContent = categoryId
+  item.querySelector(".debugIdLabel")?.remove()
 }
 
 function renderDebugIds() {
@@ -559,6 +548,18 @@ function setDailyLogSnapshotState(item, isSnapshot) {
   }
 
   item.dataset.isSnapshot = String(isSnapshot === true)
+}
+
+function isRetiredRecurringDailyLogItem(item) {
+  return item?.dataset?.recurringRetired === "true"
+}
+
+function setRetiredRecurringDailyLogState(item, isRetired) {
+  if (!item) {
+    return
+  }
+
+  item.dataset.recurringRetired = String(isRetired === true)
 }
 
 function isReadOnlyDailyLogItem(item, todayDateText = getTodayDateText()) {
@@ -1546,7 +1547,7 @@ function getDefaultCategoryReportStatusText(categoryItems, categoryId) {
 
 function getWeeklyPlanDueDateText(item, reportEndDateText = "") {
   const endDateText = getDailyLogItemEndDate(item)
-  if (!endDateText || (reportEndDateText && endDateText <= reportEndDateText)) {
+  if (!endDateText) {
     return "미정"
   }
 
@@ -1563,21 +1564,15 @@ function getWeeklyPlanCategoryDueDateText(categoryItems, reportEndDateText = "",
   }
 
   const endDateTexts = categoryItems
-    .map((item) => item.endDateText)
+    .map((item) => getDailyLogItemEndDate(item))
     .filter(Boolean)
     .sort()
 
-  if (endDateTexts.length !== categoryItems.length) {
+  if (endDateTexts.length === 0) {
     return "미정"
   }
 
-  const activeEndDateTexts = reportEndDateText
-    ? endDateTexts.filter((dateText) => dateText > reportEndDateText)
-    : endDateTexts
-
-  return activeEndDateTexts.length > 0
-    ? formatDateAsMonthDay(activeEndDateTexts[activeEndDateTexts.length - 1])
-    : "미정"
+  return formatDateAsMonthDay(endDateTexts[endDateTexts.length - 1])
 }
 
 function isDateTextWithinRange(dateText, startDateText, endDateText) {
@@ -1595,7 +1590,7 @@ function shouldIncludeInWeeklyPlan(item, reportEndDateText, planStartDateText, p
   }
 
   if (isRecurringDailyLogItem(item)) {
-    return true
+    return !isRetiredRecurringDailyLogItem(item)
   }
 
   const startDateText = getDailyLogItemStartDate(item)
@@ -2447,6 +2442,7 @@ function createDailyLogItem(title, categoryId, categoryName, options = {}) {
   categoryNode.textContent = categoryName
 
   setDailyLogSnapshotState(item, options.isSnapshot === true)
+  setRetiredRecurringDailyLogState(item, options.recurringRetired === true)
   setDailyLogItemCreatedAt(item, options.createdAt ?? getTodayDateText())
   setDailyLogItemNote(item, options.note ?? "")
   setDailyLogItemStartDate(item, options.startDate ?? "")
@@ -2543,11 +2539,43 @@ function getRecurringDailyLogKey(item) {
   return getDailyLogItemTitle(item).trim().toLowerCase()
 }
 
+function deleteRecurringDailyLogSeries(item) {
+  const recurringKey = getRecurringDailyLogKey(item)
+  const todayDateText = getTodayDateText()
+  if (!recurringKey) {
+    dailyLogState.items = dailyLogState.items.filter((candidate) => candidate !== item)
+    return
+  }
+
+  const nextItems = []
+  dailyLogState.items.forEach((candidate) => {
+    if (!isRecurringDailyLogItem(candidate) || isDailyLogSnapshotItem(candidate)) {
+      if (candidate !== item) {
+        nextItems.push(candidate)
+      }
+      return
+    }
+
+    if (getRecurringDailyLogKey(candidate) !== recurringKey) {
+      nextItems.push(candidate)
+      return
+    }
+
+    if (getItemLogDate(candidate) < todayDateText) {
+      setRetiredRecurringDailyLogState(candidate, true)
+      nextItems.push(candidate)
+    }
+  })
+
+  dailyLogState.items = nextItems
+}
+
 function createTodayRecurringDailyLogs(todayDateText = getTodayDateText()) {
   const recurringItems = getDailyLogItems()
     .filter((item) =>
       isRecurringDailyLogItem(item) &&
       !isDailyLogSnapshotItem(item) &&
+      !isRetiredRecurringDailyLogItem(item) &&
       getRecurringDailyLogKey(item)
     )
 
@@ -2732,6 +2760,7 @@ function normalizeAppData(rawData) {
           logDate,
           logOrder,
           isSnapshot: dailyLog?.isSnapshot === true,
+          recurringRetired: dailyLog?.recurringRetired === true,
           isChecked: dailyLog?.isChecked === true,
           note: typeof dailyLog?.note === "string" ? dailyLog.note : "",
           startDate: sanitizeDailyLogDateText(dailyLog?.startDate?.trim?.() ?? ""),
@@ -2806,6 +2835,7 @@ function applyAppDataToDom(appData) {
         categoryNameById.get(dailyLog.categoryId) ?? DEFAULT_CATEGORY_NAME,
         {
           isSnapshot: dailyLog.isSnapshot,
+          recurringRetired: dailyLog.recurringRetired,
           createdAt: dailyLog.createdAt,
           note: dailyLog.note,
           startDate: dailyLog.startDate,
@@ -2845,6 +2875,7 @@ function serializeAppData() {
       logDate: getItemLogDate(item) || getTodayDateText(),
       logOrder: getItemLogOrder(item),
       isSnapshot: isDailyLogSnapshotItem(item),
+      recurringRetired: isRetiredRecurringDailyLogItem(item),
       isChecked: item.dataset.isChecked === "true",
       note: getDailyLogItemNote(item),
       startDate: getDailyLogItemStartDate(item),
@@ -3245,16 +3276,24 @@ function renameDailyLogItem(item) {
 
 function deleteDailyLogItem(item) {
   const currentTitle = getDailyLogItemTitle(item)
+  const isRecurringItem = isRecurringDailyLogItem(item)
   openConfirmModal({
     title: "업무 삭제",
-    message: `'${currentTitle}' 업무를 삭제할까요?`,
+    message: isRecurringItem
+      ? `'${currentTitle}' 상시 업무를 삭제할까요?\n삭제 후에는 이후 날짜에도 다시 생성되지 않습니다.`
+      : `'${currentTitle}' 업무를 삭제할까요?`,
     submitLabel: "삭제",
     onSubmit: () => {
       if (dailyLogDetailState.selectedItem === item) {
         closeDailyLogDetailPanel()
       }
 
-      dailyLogState.items = dailyLogState.items.filter((candidate) => candidate !== item)
+      if (isRecurringItem) {
+        deleteRecurringDailyLogSeries(item)
+      } else {
+        dailyLogState.items = dailyLogState.items.filter((candidate) => candidate !== item)
+      }
+
       renderDailyLog()
       persistAppData()
     }
