@@ -4,7 +4,7 @@ const RECURRING_CATEGORY_ID = "category-recurring"
 const RECURRING_CATEGORY_NAME = "상시 업무"
 const ALL_CATEGORIES_ITEM_ID = "showAllCategories"
 const COMPACT_CATEGORY_BREAKPOINT = 1080
-const STORAGE_VERSION = 1
+const STORAGE_VERSION = 2
 const CATEGORY_PANEL_EXPANDED_ICON = `
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="#000000" viewBox="0 0 256 256" aria-hidden="true">
     <path d="M210.83,162.83a4,4,0,0,1-5.66,0L128,85.66,50.83,162.83a4,4,0,0,1-5.66-5.66l80-80a4,4,0,0,1,5.66,0l80,80A4,4,0,0,1,210.83,162.83Z"></path>
@@ -129,6 +129,10 @@ const categoryPanelState = {
   isCollapsed: false
 }
 
+const archivedCategoryPanelState = {
+  isExpanded: false
+}
+
 let persistQueue = Promise.resolve()
 
 function createCategoryId() {
@@ -156,6 +160,18 @@ function getAllCategoriesItem() {
 
 function getCategoryList() {
   return document.querySelector("#categories > .itemList")
+}
+
+function getArchivedCategoryList() {
+  return document.querySelector("#archivedCategoriesList")
+}
+
+function getArchivedCategoryPanel() {
+  return document.querySelector("#archivedCategoriesPanel")
+}
+
+function getArchivedCategoryToggleButton() {
+  return document.querySelector("#toggleArchivedCategoriesButton")
 }
 
 function getCategoryPanel() {
@@ -216,6 +232,14 @@ function getCategoryIconMarkup(categoryId) {
   return categoryId === DEFAULT_CATEGORY_ID ? INBOX_CATEGORY_ICON : DEFAULT_CATEGORY_ICON
 }
 
+function getAllCategoryItems() {
+  return Array.from(document.querySelectorAll("#categories .itemList .item[data-category-id]"))
+}
+
+function getCategoryItemById(categoryId) {
+  return document.querySelector(`#categories .itemList .item[data-category-id="${categoryId}"]`)
+}
+
 function isRecurringCategoryId(categoryId) {
   return categoryId?.trim() === RECURRING_CATEGORY_ID
 }
@@ -230,6 +254,27 @@ function isRecurringDailyLogItem(item) {
 
 function isInboxCategoryItem(item) {
   return item?.dataset?.categoryId?.trim() === DEFAULT_CATEGORY_ID
+}
+
+function isArchivedCategoryItem(item) {
+  return item?.dataset?.archived === "true"
+}
+
+function isArchivedCategoryId(categoryId) {
+  return isArchivedCategoryItem(getCategoryItemById(categoryId?.trim?.() ?? ""))
+}
+
+function setCategoryItemArchivedState(item, isArchived) {
+  if (!(item instanceof HTMLElement)) {
+    return
+  }
+
+  item.dataset.archived = String(isArchived === true)
+  item.classList.toggle("categoryItemArchived", isArchived === true)
+}
+
+function getRecurringCategoryName() {
+  return getCategoryLabel(getCategoryItemById(RECURRING_CATEGORY_ID)) || RECURRING_CATEGORY_NAME
 }
 
 function isReorderableCategoryItem(item) {
@@ -283,6 +328,40 @@ function reorderCategoryListItems() {
   categoryList.replaceChildren(fragment)
 }
 
+function setArchivedCategoriesExpanded(isExpanded) {
+  const panel = getArchivedCategoryPanel()
+  const toggleButton = getArchivedCategoryToggleButton()
+  if (!panel || !toggleButton) {
+    return
+  }
+
+  archivedCategoryPanelState.isExpanded = isExpanded
+  panel.hidden = !isExpanded
+  toggleButton.setAttribute("aria-expanded", String(isExpanded))
+  toggleButton.textContent = isExpanded ? "보관된 카테고리 숨기기" : "보관된 카테고리 보기"
+}
+
+function moveCategoryItemToActiveList(item) {
+  const categoryList = getCategoryList()
+  if (!categoryList || !(item instanceof HTMLElement)) {
+    return
+  }
+
+  const inboxItem = Array.from(categoryList.querySelectorAll(':scope > .item[data-category-id]'))
+    .find((categoryItem) => isInboxCategoryItem(categoryItem))
+  categoryList.insertBefore(item, inboxItem ?? null)
+  reorderCategoryListItems()
+}
+
+function moveCategoryItemToArchivedList(item) {
+  const archivedList = getArchivedCategoryList()
+  if (!archivedList || !(item instanceof HTMLElement)) {
+    return
+  }
+
+  archivedList.append(item)
+}
+
 function upsertCategoryCount(item, completedCount, totalCount) {
   let countNode = item.querySelector(".categoryCount")
   if (!countNode) {
@@ -295,7 +374,7 @@ function upsertCategoryCount(item, completedCount, totalCount) {
 }
 
 function updateCategoryCounts() {
-  const categoryItems = Array.from(document.querySelectorAll("#categories > .itemList .item"))
+  const categoryItems = getAllCategoryItems()
   const dailyLogItems = getDailyLogItems()
   const todayDateText = getTodayDateText()
 
@@ -333,7 +412,7 @@ function upsertDebugIdLabel(item) {
 }
 
 function renderDebugIds() {
-  const items = document.querySelectorAll("#categories > .itemList .item, #dailyLogGroups .item")
+  const items = document.querySelectorAll("#categories .itemList .item, #dailyLogGroups .item")
   items.forEach((item) => {
     upsertDebugIdLabel(item)
   })
@@ -1494,9 +1573,11 @@ function getWeeklyPlanDateRange() {
 
 function getReportCategoryOrderMap() {
   const categoryList = getCategoryList()
-  const orderedCategoryItems = categoryList
-    ? Array.from(categoryList.querySelectorAll(':scope > .item[data-category-id]'))
-    : []
+  const archivedCategoryList = getArchivedCategoryList()
+  const orderedCategoryItems = [
+    ...(categoryList ? Array.from(categoryList.querySelectorAll(':scope > .item[data-category-id]')) : []),
+    ...(archivedCategoryList ? Array.from(archivedCategoryList.querySelectorAll(':scope > .item[data-category-id]')) : [])
+  ]
   const orderMap = new Map()
   let nextOrder = 0
 
@@ -2457,7 +2538,7 @@ function createDailyLogItem(title, categoryId, categoryName, options = {}) {
   return item
 }
 
-function createCategoryItem(label, categoryId) {
+function createCategoryItem(label, categoryId, options = {}) {
   if (!categoryId) {
     throw new Error("category_id cannot be null.")
   }
@@ -2470,6 +2551,7 @@ function createCategoryItem(label, categoryId) {
     <p></p>
   `
   item.querySelector("p").textContent = label
+  setCategoryItemArchivedState(item, options.archived === true)
 
   upsertDebugIdLabel(item)
   upsertCategoryCount(item, 0, 0)
@@ -2603,7 +2685,7 @@ function createTodayRecurringDailyLogs(todayDateText = getTodayDateText()) {
       const item = createDailyLogItem(
         getDailyLogItemTitle(sourceItem),
         RECURRING_CATEGORY_ID,
-        RECURRING_CATEGORY_NAME,
+        getRecurringCategoryName(),
         {
           createdAt: getDailyLogItemCreatedAt(sourceItem) || todayDateText,
           note: getDailyLogItemNote(sourceItem),
@@ -2666,7 +2748,8 @@ function normalizeAppData(rawData) {
   }
 
   const categories = []
-  const seenCategoryIds = new Set([RECURRING_CATEGORY_ID, DEFAULT_CATEGORY_ID])
+  const seenCategoryIds = new Set([DEFAULT_CATEGORY_ID])
+  let recurringCategoryLabel = RECURRING_CATEGORY_NAME
   const userProfile = {
     name: sanitizeProfileField(rawData.userProfile?.name),
     department: sanitizeProfileField(rawData.userProfile?.department),
@@ -2718,25 +2801,39 @@ function normalizeAppData(rawData) {
       if (
         !categoryId ||
         !label ||
-        categoryId === DEFAULT_CATEGORY_ID ||
-        categoryId === RECURRING_CATEGORY_ID ||
         seenCategoryIds.has(categoryId)
       ) {
         return
       }
 
+      if (categoryId === RECURRING_CATEGORY_ID) {
+        recurringCategoryLabel = label
+        seenCategoryIds.add(categoryId)
+        return
+      }
+
+      if (categoryId === DEFAULT_CATEGORY_ID) {
+        return
+      }
+
       seenCategoryIds.add(categoryId)
-      categories.push({ id: categoryId, label })
+      categories.push({
+        id: categoryId,
+        label,
+        archived: category?.archived === true
+      })
     })
   }
 
   categories.unshift({
     id: RECURRING_CATEGORY_ID,
-    label: RECURRING_CATEGORY_NAME
+    label: recurringCategoryLabel,
+    archived: false
   })
   categories.push({
     id: DEFAULT_CATEGORY_ID,
-    label: DEFAULT_CATEGORY_NAME
+    label: DEFAULT_CATEGORY_NAME,
+    archived: false
   })
 
   const validCategoryIds = new Set(categories.map((category) => category.id))
@@ -2801,11 +2898,22 @@ function applyAppDataToDom(appData) {
   )
 
   const categoryFragment = document.createDocumentFragment()
+  const archivedCategoryFragment = document.createDocumentFragment()
   categoryFragment.append(createAllCategoryItem())
   safeData.categories.forEach((category) => {
-    categoryFragment.append(createCategoryItem(category.label, category.id))
+    const item = createCategoryItem(category.label, category.id, {
+      archived: category.archived === true
+    })
+    if (category.archived === true && !isRecurringCategoryId(category.id) && category.id !== DEFAULT_CATEGORY_ID) {
+      archivedCategoryFragment.append(item)
+      return
+    }
+
+    categoryFragment.append(item)
   })
   categoryList.replaceChildren(categoryFragment)
+  getArchivedCategoryList()?.replaceChildren(archivedCategoryFragment)
+  setArchivedCategoriesExpanded(false)
   reorderCategoryListItems()
 
   const groupsFragment = document.createDocumentFragment()
@@ -2853,15 +2961,19 @@ function applyAppDataToDom(appData) {
 }
 
 function serializeAppData() {
-  const categories = Array.from(document.querySelectorAll("#categories > .itemList .item[data-category-id]"))
+  const categories = getAllCategoryItems()
     .map((item) => {
       const id = item.dataset.categoryId?.trim()
       const label = getCategoryLabel(item)
-      if (!id || !label || id === DEFAULT_CATEGORY_ID || id === RECURRING_CATEGORY_ID) {
+      if (!id || !label || id === DEFAULT_CATEGORY_ID) {
         return null
       }
 
-      return { id, label }
+      return {
+        id,
+        label,
+        archived: isRecurringCategoryId(id) ? false : isArchivedCategoryItem(item)
+      }
     })
     .filter(Boolean)
 
@@ -3038,7 +3150,7 @@ async function loadFooterQuote() {
 }
 
 function initializeCategories() {
-  const categoryItems = Array.from(document.querySelectorAll("#categories > .itemList .item[data-category-id]"))
+  const categoryItems = getAllCategoryItems()
   const inboxItem = categoryItems.find((item) => item.dataset.categoryId?.trim() === DEFAULT_CATEGORY_ID)
 
   if (!inboxItem) {
@@ -3069,7 +3181,7 @@ function initializeCategories() {
   return {
     categoryMap,
     recurringId: RECURRING_CATEGORY_ID,
-    recurringName: RECURRING_CATEGORY_NAME,
+    recurringName: categoryMap.get(RECURRING_CATEGORY_ID) ?? RECURRING_CATEGORY_NAME,
     inboxId: DEFAULT_CATEGORY_ID,
     inboxName: DEFAULT_CATEGORY_NAME
   }
@@ -3138,6 +3250,15 @@ function compareItemsByDate(a, b) {
   return getItemLogOrder(b) - getItemLogOrder(a)
 }
 
+function compareItemsByOldestDate(a, b) {
+  const dateCompare = getItemLogDate(a).localeCompare(getItemLogDate(b))
+  if (dateCompare !== 0) {
+    return dateCompare
+  }
+
+  return getItemLogOrder(a) - getItemLogOrder(b)
+}
+
 function compareDailyLogDisplayItems(a, b) {
   const aRecurring = isRecurringDailyLogItem(a)
   const bRecurring = isRecurringDailyLogItem(b)
@@ -3161,6 +3282,10 @@ function compareTodayDailyLogDisplayItems(a, b) {
     return aInbox ? 1 : -1
   }
 
+  return getItemLogOrder(a) - getItemLogOrder(b)
+}
+
+function compareArchivedDailyLogDisplayItems(a, b) {
   return getItemLogOrder(a) - getItemLogOrder(b)
 }
 
@@ -3323,7 +3448,7 @@ function openDailyLogCategorySelectModal(item, categoryMap, title = "카테고�
   closeInfoModal()
   hideContextMenu()
 
-  const categoryItems = Array.from(document.querySelectorAll("#categories > .itemList .item[data-category-id]"))
+  const categoryItems = getAllCategoryItems()
   const fragment = document.createDocumentFragment()
 
   categoryItems.forEach((categoryItem) => {
@@ -3347,7 +3472,11 @@ function openDailyLogCategorySelectModal(item, categoryMap, title = "카테고�
 
     const optionMeta = document.createElement("span")
     optionMeta.className = "categorySelectOptionMeta"
-    optionMeta.textContent = categoryId === currentCategoryId ? "현재" : "선택"
+    optionMeta.textContent = categoryId === currentCategoryId
+      ? "현재"
+      : isArchivedCategoryItem(categoryItem)
+        ? "보관됨"
+        : "선택"
 
     optionButton.append(optionLabel, optionMeta)
     fragment.append(optionButton)
@@ -3374,7 +3503,7 @@ function openDailyLogCategorySelectModal(item, categoryMap, title = "카테고�
 
 function renameCategoryItem(item, categoryMap) {
   const categoryId = item.dataset.categoryId?.trim()
-  if (!categoryId || isRecurringCategoryId(categoryId)) {
+  if (!categoryId || categoryId === DEFAULT_CATEGORY_ID) {
     return
   }
 
@@ -3392,6 +3521,7 @@ function renameCategoryItem(item, categoryMap) {
     initialValue: currentLabel,
     onSubmit: (nextLabel) => {
       labelNode.textContent = nextLabel
+      upsertDebugIdLabel(item)
       categoryMap.set(categoryId, nextLabel)
       dailyLogState.items.forEach((dailyLogItem) => {
         if (dailyLogItem.dataset.categoryId === categoryId) {
@@ -3433,6 +3563,34 @@ function deleteCategoryItem(item, categoryMap, inboxId, inboxName) {
       persistAppData()
     }
   })
+}
+
+function archiveCategoryItem(item) {
+  const categoryId = item?.dataset.categoryId?.trim()
+  if (!categoryId || categoryId === DEFAULT_CATEGORY_ID || isRecurringCategoryId(categoryId)) {
+    return
+  }
+
+  setCategoryItemArchivedState(item, true)
+  moveCategoryItemToArchivedList(item)
+  if (dailyLogState.selectedCategoryId === categoryId) {
+    setArchivedCategoriesExpanded(true)
+    setActiveCategory(item)
+  }
+  renderDailyLog()
+  persistAppData()
+}
+
+function restoreCategoryItem(item) {
+  const categoryId = item?.dataset.categoryId?.trim()
+  if (!categoryId || categoryId === DEFAULT_CATEGORY_ID || isRecurringCategoryId(categoryId)) {
+    return
+  }
+
+  setCategoryItemArchivedState(item, false)
+  moveCategoryItemToActiveList(item)
+  renderDailyLog()
+  persistAppData()
 }
 
 function handleContextMenuAction(action) {
@@ -3481,6 +3639,16 @@ function handleContextMenuAction(action) {
       return
     }
 
+    if (action === "archive") {
+      archiveCategoryItem(targetElement)
+      return
+    }
+
+    if (action === "restore") {
+      restoreCategoryItem(targetElement)
+      return
+    }
+
     if (action === "delete") {
       deleteCategoryItem(targetElement, categoryMap, inboxId, inboxName)
     }
@@ -3497,6 +3665,9 @@ function renderDailyLog() {
   carryOverPendingDailyLogsToToday(todayDateText)
   createTodayRecurringDailyLogs(todayDateText)
   const allItems = getDailyLogItems()
+  const isArchivedSelection = Boolean(
+    dailyLogState.selectedCategoryId && isArchivedCategoryId(dailyLogState.selectedCategoryId)
+  )
   const visibleItems = dailyLogState.selectedCategoryId
     ? allItems.filter((item) => item.dataset.categoryId === dailyLogState.selectedCategoryId)
     : allItems
@@ -3506,7 +3677,7 @@ function renderDailyLog() {
 
   visibleItems
     .slice()
-    .sort(compareItemsByDate)
+    .sort(isArchivedSelection ? compareItemsByOldestDate : compareItemsByDate)
     .forEach((item) => {
       const logDate = getItemLogDate(item) || "날짜 없음"
       if (!itemsByDate.has(logDate)) {
@@ -3524,9 +3695,11 @@ function renderDailyLog() {
     }
     const sortedDateItems = dateItems
       .slice()
-      .sort(dateLabel === todayDateText
-        ? compareTodayDailyLogDisplayItems
-        : compareDailyLogDisplayItems)
+      .sort(isArchivedSelection
+        ? compareArchivedDailyLogDisplayItems
+        : dateLabel === todayDateText
+          ? compareTodayDailyLogDisplayItems
+          : compareDailyLogDisplayItems)
 
     sortedDateItems.forEach((item) => {
       syncDailyLogItemRenderState(item, todayDateText)
@@ -3548,7 +3721,7 @@ function applyCategoryFilter(selectedCategoryId) {
 }
 
 function setActiveCategory(selectedItem) {
-  const categoryItems = document.querySelectorAll("#categories > .itemList .item")
+  const categoryItems = document.querySelectorAll("#categories .itemList .item")
   categoryItems.forEach((item) => {
     const isActive = item === selectedItem
     item.classList.toggle("categoryItemActive", isActive)
@@ -3559,14 +3732,18 @@ function setActiveCategory(selectedItem) {
 }
 
 function bindCategoryFiltering() {
-  const categoryList = getCategoryList()
-  if (!categoryList) {
+  const categoryPanel = getCategoryPanel()
+  if (!categoryPanel) {
     return
   }
 
-  categoryList.addEventListener("click", (event) => {
+  categoryPanel.addEventListener("click", (event) => {
     const item = event.target.closest(".item")
     if (!item) {
+      return
+    }
+
+    if (!item.closest(".itemList")) {
       return
     }
 
@@ -3937,10 +4114,10 @@ function bindDailyLogDetailPanel() {
 
 function bindContextMenu(categoryMap, inboxId, inboxName) {
   const dailyLog = document.querySelector("#dailyLog")
-  const categoryList = document.querySelector("#categories > .itemList")
+  const categoryPanel = getCategoryPanel()
   const contextMenu = getContextMenu()
 
-  if (!dailyLog || !categoryList || !contextMenu) {
+  if (!dailyLog || !categoryPanel || !contextMenu) {
     return
   }
 
@@ -3972,9 +4149,9 @@ function bindContextMenu(categoryMap, inboxId, inboxName) {
     )
   })
 
-  categoryList.addEventListener("contextmenu", (event) => {
+  categoryPanel.addEventListener("contextmenu", (event) => {
     const item = event.target.closest(".item")
-    if (!item) {
+    if (!item || !item.closest(".itemList")) {
       hideContextMenu()
       return
     }
@@ -3984,12 +4161,18 @@ function bindContextMenu(categoryMap, inboxId, inboxName) {
     const categoryId = item.dataset.categoryId?.trim()
     const isInboxCategory = categoryId === inboxId
     const isRecurringCategory = isRecurringCategoryItem(item)
-    const isSystemCategory = !categoryId || isInboxCategory || isRecurringCategory
+    const isSystemCategory = !categoryId || isInboxCategory
+    const isArchivedCategory = isArchivedCategoryItem(item)
     showContextMenu(
       event.clientX,
       event.clientY,
       [
         { label: "수정", action: "edit", disabled: isSystemCategory },
+        {
+          label: isArchivedCategory ? "보관 해제" : "보관하기",
+          action: isArchivedCategory ? "restore" : "archive",
+          disabled: isSystemCategory || isRecurringCategory
+        },
         { label: "삭제", action: "delete", danger: true, disabled: isSystemCategory }
       ],
       {
@@ -4019,7 +4202,7 @@ function bindContextMenu(categoryMap, inboxId, inboxName) {
   })
 
   document.addEventListener("contextmenu", (event) => {
-    if (!event.target.closest("#dailyLog .item, #categories > .itemList .item")) {
+    if (!event.target.closest("#dailyLog .item, #categories .itemList .item")) {
       hideContextMenu()
     }
   })
@@ -4094,6 +4277,18 @@ function bindCategoryCreation(categoryMap) {
 
   addButton.addEventListener("click", () => {
     openCategoryCreationModal(categoryMap)
+  })
+}
+
+function bindArchivedCategoryToggle() {
+  const toggleButton = getArchivedCategoryToggleButton()
+  if (!toggleButton) {
+    return
+  }
+
+  setArchivedCategoriesExpanded(false)
+  toggleButton.addEventListener("click", () => {
+    setArchivedCategoriesExpanded(!archivedCategoryPanelState.isExpanded)
   })
 }
 
@@ -4643,6 +4838,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   bindCategoryDetailDescription()
   bindCategoryPanelToggle()
   bindCategoryCreation(categoryMap)
+  bindArchivedCategoryToggle()
   bindCategoryReordering()
   bindDailyLogCreation(categoryMap, inboxId, inboxName)
   bindDailyLogCategoryDnD(categoryMap)

@@ -318,6 +318,36 @@ body > header h1 {
     background: rgba(0, 0, 0, 0.06);
 }
 
+#toggleArchivedCategoriesButton {
+    width: auto;
+    margin-top: 10px;
+    padding: 0;
+    color: blue;
+    font-size: 14px;
+    font-weight: 400;
+    background: transparent;
+    box-shadow: none;
+    justify-content: flex-start;
+}
+
+#toggleArchivedCategoriesButton:hover {
+    background: transparent;
+    text-decoration: underline;
+}
+
+#archivedCategoriesPanel {
+    margin-top: 10px;
+}
+
+#archivedCategoriesList {
+    display: grid;
+    gap: 6px;
+}
+
+#categories .item.categoryItemArchived {
+    background: rgba(0, 0, 0, 0.02);
+}
+
 #dailyLog > input[type="text"] {
     width: 100%;
     height: 52px;

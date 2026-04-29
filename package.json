@@ -30,9 +30,11 @@
       "main.js",
       "preload.js",
       "src/**/*",
+      "data/**/*",
       "package.json"
     ],
     "win": {
+      "icon": "src/assets/app-icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -44,8 +46,8 @@
       "artifactName": "auto-daily-report2-setup-${version}.${ext}"
     },
     "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
+      "oneClick": true,
+      "allowToChangeInstallationDirectory": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "AutoDailyReport2"

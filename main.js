@@ -6,6 +6,14 @@ const { autoUpdater } = require("electron-updater");
 
 const SMTP_HOST = "smtp.gmail.com";
 const SMTP_PORT = 465;
+const UPDATE_CHECK_DELAY_MS = 3000;
+const DEFERRED_UPDATE_CHECK_DELAY_MS = 250;
+
+let updaterState = {
+  deferredVersion: ""
+};
+let isInstallingDeferredUpdate = false;
+let promptedUpdateVersion = "";
 
 function getDataFilePath() {
   return path.join(app.getPath("userData"), "app-data.json");
@@ -15,12 +23,102 @@ function getQuotesFilePath() {
   return path.join(__dirname, "data", "quotes.json");
 }
 
+function getUpdaterStateFilePath() {
+  return path.join(app.getPath("userData"), "updater-state.json");
+}
+
+function normalizeUpdaterState(rawState) {
+  return {
+    deferredVersion: typeof rawState?.deferredVersion === "string"
+      ? rawState.deferredVersion.trim()
+      : ""
+  };
+}
+
+async function loadUpdaterState() {
+  const updaterStatePath = getUpdaterStateFilePath();
+
+  try {
+    const raw = await fs.readFile(updaterStatePath, "utf8");
+    return normalizeUpdaterState(JSON.parse(raw));
+  } catch (error) {
+    if (error && error.code === "ENOENT") {
+      return normalizeUpdaterState(null);
+    }
+
+    console.error("Failed to load updater state.", error);
+    return normalizeUpdaterState(null);
+  }
+}
+
+async function saveUpdaterState(nextState) {
+  updaterState = normalizeUpdaterState(nextState);
+  const updaterStatePath = getUpdaterStateFilePath();
+  await fs.mkdir(path.dirname(updaterStatePath), { recursive: true });
+  await fs.writeFile(updaterStatePath, JSON.stringify(updaterState, null, 2), "utf8");
+}
+
+async function clearDeferredUpdateVersion() {
+  if (!updaterState.deferredVersion) {
+    return;
+  }
+
+  await saveUpdaterState({
+    ...updaterState,
+    deferredVersion: ""
+  });
+}
+
+function installDownloadedUpdate(installReason, version) {
+  if (isInstallingDeferredUpdate) {
+    return;
+  }
+
+  isInstallingDeferredUpdate = true;
+  console.log(`Installing downloaded update ${version} (${installReason}).`);
+  autoUpdater.quitAndInstall(true, true);
+}
+
+async function promptForDownloadedUpdate(info) {
+  const targetWindow = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+  const messageBoxOptions = {
+    type: "info",
+    buttons: ["지금 설치하고 재시작", "다음 실행에 설치"],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+    title: "업데이트 준비 완료",
+    message: "업데이트가 있습니다. 지금 설치하시겠습니까?",
+    detail: `버전 ${info.version} 업데이트가 다운로드되었습니다.`
+  };
+  const result = targetWindow
+    ? await dialog.showMessageBox(targetWindow, messageBoxOptions)
+    : await dialog.showMessageBox(messageBoxOptions);
+
+  if (result.response === 0) {
+    await saveUpdaterState({
+      ...updaterState,
+      deferredVersion: ""
+    });
+    installDownloadedUpdate("install-now", info.version);
+    return;
+  }
+
+  await saveUpdaterState({
+    ...updaterState,
+    deferredVersion: info.version
+  });
+  console.log(`Deferred update ${info.version} until next app launch.`);
+}
+
 function createWindow() {
+  const iconPath = path.join(__dirname, "src", "assets", "app-icon.png");
   const mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 960,
     minHeight: 640,
+    icon: iconPath,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -59,32 +157,59 @@ function setupAutoUpdater() {
   }
 
   autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = false;
+  autoUpdater.autoRunAppAfterInstall = true;
+
+  autoUpdater.on("checking-for-update", () => {
+    console.log("Checking for app updates.");
+  });
+
+  autoUpdater.on("update-available", (info) => {
+    console.log(`Update available: ${info.version}`);
+  });
+
+  autoUpdater.on("update-not-available", () => {
+    console.log("No app update available.");
+  });
+
+  autoUpdater.on("download-progress", (progress) => {
+    console.log(`Update download progress: ${Math.round(progress.percent)}%`);
+  });
 
   autoUpdater.on("error", (error) => {
     console.error("Auto update failed.", error);
   });
 
-  autoUpdater.on("update-downloaded", () => {
-    dialog.showMessageBox({
-      type: "info",
-      buttons: ["지금 재시작", "나중에"],
-      defaultId: 0,
-      cancelId: 1,
-      title: "업데이트 준비 완료",
-      message: "새 버전 다운로드가 완료되었습니다.",
-      detail: "지금 재시작하면 업데이트가 적용됩니다."
-    }).then((result) => {
-      if (result.response === 0) {
-        autoUpdater.quitAndInstall();
+  autoUpdater.on("update-downloaded", async (info) => {
+    console.log(`Update downloaded: ${info.version}.`);
+
+    try {
+      if (updaterState.deferredVersion === info.version) {
+        installDownloadedUpdate("deferred-next-launch", info.version);
+        return;
       }
-    });
+
+      if (promptedUpdateVersion === info.version) {
+        return;
+      }
+
+      promptedUpdateVersion = info.version;
+      await promptForDownloadedUpdate(info);
+    } catch (error) {
+      console.error(`Failed to handle downloaded update ${info.version}.`, error);
+      promptedUpdateVersion = "";
+    }
   });
 
+  const checkDelay = updaterState.deferredVersion
+    ? DEFERRED_UPDATE_CHECK_DELAY_MS
+    : UPDATE_CHECK_DELAY_MS;
+
   setTimeout(() => {
-    autoUpdater.checkForUpdatesAndNotify().catch((error) => {
+    autoUpdater.checkForUpdates().catch((error) => {
       console.error("Failed to check for updates.", error);
     });
-  }, 3000);
+  }, checkDelay);
 }
 
 function encodeMailHeader(value) {
@@ -507,7 +632,12 @@ if (!gotSingleInstanceLock) {
     mainWindow.focus();
   });
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
+    updaterState = await loadUpdaterState();
+    if (updaterState.deferredVersion === app.getVersion()) {
+      await clearDeferredUpdateVersion();
+    }
+
     Menu.setApplicationMenu(createAppMenu());
     createWindow();
     setupAutoUpdater();

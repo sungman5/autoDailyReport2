@@ -2,7 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("appInfo", {
   name: "AutoDailyReport2",
-  version: "1.0.0"
+  version: ""
 });
 
 contextBridge.exposeInMainWorld("appStorage", {
