@@ -617,6 +617,34 @@ function setDailyLogItemCompletedAt(item, dateText) {
   item.dataset.completedAt = sanitizeDailyLogDateText(dateText)
 }
 
+function isFutureStartDailyLogItem(item, todayDateText = getTodayDateText()) {
+  const startDateText = getDailyLogItemStartDate(item)
+  return Boolean(startDateText) && startDateText > todayDateText
+}
+
+function upsertDailyLogScheduleBadge(item, todayDateText = getTodayDateText()) {
+  if (!(item instanceof HTMLElement)) {
+    return
+  }
+
+  let badge = item.querySelector(".dailyLogScheduleBadge")
+  const isScheduled = isFutureStartDailyLogItem(item, todayDateText)
+
+  if (!isScheduled) {
+    badge?.remove()
+    return
+  }
+
+  if (!badge) {
+    badge = document.createElement("span")
+    badge.className = "dailyLogScheduleBadge"
+    const categoryNode = item.querySelector(".dailyLogCategoryBadge")
+    item.insertBefore(badge, categoryNode ?? null)
+  }
+
+  badge.textContent = "예정"
+}
+
 function isDailyLogSnapshotItem(item) {
   return item?.dataset?.isSnapshot === "true"
 }
@@ -1740,21 +1768,43 @@ function getWeeklyCategorySummaryNoteText(items, options = {}) {
     return ""
   }
 
+  const categoryId = typeof options.categoryId === "string"
+    ? options.categoryId.trim()
+    : ""
   const sortItems = typeof options.sortItems === "function"
     ? options.sortItems
     : (sourceItems) => sourceItems.slice().sort(compareItemsByCompletedOrder)
 
   const sortedItems = sortItems(items)
-  const previewTitles = sortedItems
-    .slice(0, WEEKLY_REPORT_NOTE_PREVIEW_LIMIT)
-    .map((item) => getDailyLogItemTitle(item))
-    .filter(Boolean)
+  const titleSet = new Set()
+  const titles = []
+
+  sortedItems.forEach((item) => {
+    const title = getDailyLogItemTitle(item)
+    if (!title) {
+      return
+    }
+
+    if (isRecurringCategoryId(categoryId)) {
+      const recurringKey = title.trim().toLowerCase()
+      if (!recurringKey || titleSet.has(recurringKey)) {
+        return
+      }
+      titleSet.add(recurringKey)
+      titles.push(title)
+      return
+    }
+
+    titles.push(title)
+  })
+
+  const previewTitles = titles.slice(0, WEEKLY_REPORT_NOTE_PREVIEW_LIMIT)
 
   if (previewTitles.length === 0) {
     return ""
   }
 
-  const remainingCount = Math.max(0, sortedItems.length - previewTitles.length)
+  const remainingCount = Math.max(0, titles.length - previewTitles.length)
   const previewText = previewTitles.join(", ")
 
   return remainingCount > 0
@@ -1768,7 +1818,7 @@ function buildWeeklyCategorySummaryEntries(items, options = {}) {
     : (categoryItems, categoryId) => getWeeklyCategorySummaryStatus(categoryItems, categoryId)
   const getNoteText = typeof options.getNoteText === "function"
     ? options.getNoteText
-    : (categoryItems) => getWeeklyCategorySummaryNoteText(categoryItems)
+    : (categoryItems, categoryId) => getWeeklyCategorySummaryNoteText(categoryItems, { categoryId })
   const getStandaloneStatusText = typeof options.getStandaloneStatusText === "function"
     ? options.getStandaloneStatusText
     : (item) => getDefaultReportStatusText(item)
@@ -1945,7 +1995,8 @@ function getWeeklyReportEntries() {
 
   return buildWeeklyCategorySummaryEntries(getSortedReportLogItems(weeklyItems), {
     getStatusText: (categoryItems, categoryId) => getWeeklyCategorySummaryStatus(categoryItems, categoryId),
-    getNoteText: (categoryItems) => getWeeklyCategorySummaryNoteText(categoryItems, {
+    getNoteText: (categoryItems, categoryId) => getWeeklyCategorySummaryNoteText(categoryItems, {
+      categoryId,
       sortItems: (sourceItems) => sourceItems.slice().sort(compareItemsByCompletedOrder)
     }),
     getStandaloneStatusText: (item) => getDefaultReportStatusText(item),
@@ -1969,7 +2020,8 @@ function getCurrentWorkWeekPlanReportEntries() {
   return buildWeeklyCategorySummaryEntries(getSortedReportLogItems(plannedItems), {
     getStatusText: (categoryItems, categoryId) =>
       getWeeklyPlanCategoryDueDateText(categoryItems, endDateText, categoryId),
-    getNoteText: (categoryItems) => getWeeklyCategorySummaryNoteText(categoryItems, {
+    getNoteText: (categoryItems, categoryId) => getWeeklyCategorySummaryNoteText(categoryItems, {
+      categoryId,
       sortItems: (sourceItems) =>
         sourceItems.slice().sort((left, right) => compareItemsByDate(left, right))
     }),
@@ -3309,13 +3361,17 @@ function createDailyLogGroup(label) {
 
 function syncDailyLogItemRenderState(item, todayDateText = getTodayDateText()) {
   const isReadOnly = isReadOnlyDailyLogItem(item, todayDateText)
+  const isScheduled = isFutureStartDailyLogItem(item, todayDateText)
   item.classList.toggle("itemReadOnly", isReadOnly)
+  item.classList.toggle("itemScheduled", isScheduled)
   item.draggable = !isReadOnly
 
   const checkbox = item.querySelector('input[type="checkbox"]')
   if (checkbox) {
     checkbox.disabled = isReadOnly
   }
+
+  upsertDailyLogScheduleBadge(item, todayDateText)
 }
 
 function getContextMenu() {
@@ -4097,6 +4153,7 @@ function bindDailyLogDetailPanel() {
 
     setDailyLogItemStartDate(selectedItem, startDateInput.value)
     startDateInput.value = getDailyLogItemStartDate(selectedItem)
+    syncDailyLogItemRenderState(selectedItem)
     persistAppData()
   })
 

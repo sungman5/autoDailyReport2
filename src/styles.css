@@ -398,6 +398,8 @@ body > header h1 {
 }
 
 #dailyLog .item {
+    justify-content: flex-start;
+    flex-wrap: wrap;
     min-height: 58px;
     padding: 12px 14px;
     border: 1px solid var(--line-soft);
@@ -445,10 +447,12 @@ body > header h1 {
 }
 
 #dailyLog .item .dailyLogTitle {
-    flex: 1;
+    flex: 0 1 auto;
+    min-width: 0;
     margin: 0;
     color: var(--text-strong);
     font-weight: 500;
+    overflow-wrap: anywhere;
 }
 
 #dailyLog .item.itemChecked .dailyLogTitle {
@@ -456,15 +460,29 @@ body > header h1 {
     text-decoration: line-through;
 }
 
+#dailyLog .item .dailyLogScheduleBadge,
 #dailyLog .item .dailyLogCategoryBadge {
     flex-shrink: 0;
     padding: 6px 10px;
     border: 0;
     border-radius: 999px;
     font-size: 0.8rem;
+    line-height: 1;
+}
+
+#dailyLog .item .dailyLogScheduleBadge {
+    color: #7a4a00;
+    background: rgba(214, 146, 0, 0.14);
+}
+
+#dailyLog .item .dailyLogCategoryBadge {
     color: #666666;
     background: var(--accent-soft);
     cursor: pointer;
+}
+
+#dailyLog .item.itemScheduled .dailyLogTitle {
+    color: #6b5a2c;
 }
 
 #dailyLog .item .dailyLogCategoryBadge:hover {
@@ -472,12 +490,17 @@ body > header h1 {
 }
 
 #dailyLog .item.itemReadOnly .dailyLogTitle,
+#dailyLog .item.itemReadOnly .dailyLogScheduleBadge,
 #dailyLog .item.itemReadOnly .dailyLogCategoryBadge {
     color: #9a9a9a;
 }
 
+#dailyLog .item.itemReadOnly .dailyLogScheduleBadge,
 #dailyLog .item.itemReadOnly .dailyLogCategoryBadge {
     background: #e8e8e8;
+}
+
+#dailyLog .item.itemReadOnly .dailyLogCategoryBadge {
     cursor: default;
 }
 
