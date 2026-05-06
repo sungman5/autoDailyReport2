@@ -256,14 +256,14 @@
                 <input type="email" id="personalSettingsRecipientEmailInput" autocomplete="off">
             </label>
             <label class="modalField personalSettingsField" for="personalSettingsDailyReportSavePathInput">
-                <span>일일보고서 저장 위치</span>
+                <span>일일보고서 저장 루트</span>
                 <div class="personalSettingsPathControl">
                     <input type="text" id="personalSettingsDailyReportSavePathInput" autocomplete="off">
                     <button type="button" class="modalSecondaryButton personalSettingsFolderButton" id="selectDailyReportSavePathButton">폴더 선택</button>
                 </div>
             </label>
             <label class="modalField personalSettingsField" for="personalSettingsWeeklyReportSavePathInput">
-                <span>주간 보고서 저장 위치</span>
+                <span>주간 보고서 저장 루트</span>
                 <div class="personalSettingsPathControl">
                     <input type="text" id="personalSettingsWeeklyReportSavePathInput" autocomplete="off">
                     <button type="button" class="modalSecondaryButton personalSettingsFolderButton" id="selectWeeklyReportSavePathButton">폴더 선택</button>
@@ -281,6 +281,11 @@
                 <span>쉬는날</span>
                 <textarea id="personalSettingsHolidayDatesTextarea" rows="5" placeholder="YYYY-MM-DD&#10;예: 2026-05-05"></textarea>
             </label>
+            <label class="modalField personalSettingsField" for="personalSettingsHolidayApiConfigPathInput">
+                <span>공휴일 설정 파일</span>
+                <input type="text" id="personalSettingsHolidayApiConfigPathInput" autocomplete="off" readonly>
+            </label>
+            <p class="modalHint" id="holidayApiStatus">공휴일 설정 파일을 확인하는 중입니다.</p>
             <p class="modalHint">저장한 정보는 보고서 작성자 정보와 메일 발송 설정에 사용됩니다.</p>
         </div>
         <div class="modalFooter">

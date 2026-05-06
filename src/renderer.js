@@ -118,6 +118,17 @@ const weeklyPrintReminderState = {
   historyByWeek: {}
 }
 
+const holidayCalendarState = {
+  publicHolidayDates: [],
+  lastSyncedAt: "",
+  lastSyncedAppVersion: "",
+  configPath: "",
+  configEnabled: false,
+  hasServiceKey: false,
+  endpoint: "",
+  syncStatusMessage: ""
+}
+
 const reportDeliveryState = {
   isDailyReportSending: false
 }
@@ -144,6 +155,18 @@ const archivedCategoryPanelState = {
 }
 
 let persistQueue = Promise.resolve()
+
+function writeStartupDebugLog(message, details = {}) {
+  if (!window.appDebug?.log) {
+    return
+  }
+
+  const payload = {
+    message,
+    ...details
+  }
+  window.appDebug.log(JSON.stringify(payload))
+}
 
 function createCategoryId() {
   const randomNumber = Math.floor(10000000 + Math.random() * 90000000)
@@ -533,6 +556,8 @@ function getPersonalSettingsModalElements() {
     dailyReportAutoSendTimeInput: document.querySelector("#personalSettingsDailyReportAutoSendTimeInput"),
     mailBodyTextarea: document.querySelector("#personalSettingsMailBodyTextarea"),
     holidayDatesTextarea: document.querySelector("#personalSettingsHolidayDatesTextarea"),
+    holidayApiConfigPathInput: document.querySelector("#personalSettingsHolidayApiConfigPathInput"),
+    holidayApiStatus: document.querySelector("#holidayApiStatus"),
     closeButton: document.querySelector("#closePersonalSettingsModal"),
     cancelButton: document.querySelector("#cancelPersonalSettingsModal"),
     submitButton: document.querySelector("#submitPersonalSettingsModal")
@@ -603,6 +628,14 @@ function sanitizeStoredTimestamp(value) {
   return typeof value === "string" ? value.trim() : ""
 }
 
+function sanitizeHolidayApiPath(value) {
+  return typeof value === "string" ? value.trim() : ""
+}
+
+function sanitizeHolidayApiBoolean(value) {
+  return value === true
+}
+
 function pruneWeeklyPrintReminderHistory(historyByWeek = {}) {
   return Object.fromEntries(
     Object.entries(historyByWeek)
@@ -660,6 +693,90 @@ function upsertWeeklyPrintReminderHistoryEntry(weekKey, patch = {}) {
 function getWeeklyPrintReminderHistoryEntry(weekKey) {
   const safeWeekKey = sanitizeDailyLogDateText(weekKey)
   return safeWeekKey ? weeklyPrintReminderState.historyByWeek[safeWeekKey] ?? null : null
+}
+
+function normalizeHolidayCalendar(rawCalendar) {
+  return {
+    publicHolidayDates: sanitizeHolidayDateList(rawCalendar?.publicHolidayDates),
+    lastSyncedAt: sanitizeStoredTimestamp(rawCalendar?.lastSyncedAt),
+    lastSyncedAppVersion: sanitizeStoredTimestamp(rawCalendar?.lastSyncedAppVersion)
+  }
+}
+
+function setHolidayCalendar(calendar = {}) {
+  const normalizedCalendar = normalizeHolidayCalendar(calendar)
+  holidayCalendarState.publicHolidayDates = normalizedCalendar.publicHolidayDates
+  holidayCalendarState.lastSyncedAt = normalizedCalendar.lastSyncedAt
+  holidayCalendarState.lastSyncedAppVersion = normalizedCalendar.lastSyncedAppVersion
+}
+
+function setHolidayApiConfigInfo(info = {}) {
+  holidayCalendarState.configPath = sanitizeHolidayApiPath(info.path)
+  holidayCalendarState.configEnabled = sanitizeHolidayApiBoolean(info.enabled)
+  holidayCalendarState.hasServiceKey = sanitizeHolidayApiBoolean(info.hasServiceKey)
+  holidayCalendarState.endpoint = typeof info.endpoint === "string" ? info.endpoint.trim() : ""
+}
+
+function formatStoredDateTime(dateText) {
+  if (!dateText) {
+    return ""
+  }
+
+  const date = new Date(dateText)
+  if (Number.isNaN(date.getTime())) {
+    return dateText
+  }
+
+  return new Intl.DateTimeFormat("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(date)
+}
+
+function getCurrentAppVersion() {
+  return typeof window.appInfo?.version === "string" ? window.appInfo.version.trim() : ""
+}
+
+function getHolidayApiStatusMessage() {
+  if (holidayCalendarState.syncStatusMessage) {
+    return holidayCalendarState.syncStatusMessage
+  }
+
+  if (!holidayCalendarState.configPath) {
+    return "공휴일 설정 파일 경로를 불러오는 중입니다."
+  }
+
+  if (!holidayCalendarState.configEnabled) {
+    return "공휴일 자동 동기화가 꺼져 있습니다. 설정 파일에서 enabled를 true로 바꾸세요."
+  }
+
+  if (!holidayCalendarState.hasServiceKey) {
+    return "설정 파일에 일반 인증키(serviceKey)를 입력하세요."
+  }
+
+  if (holidayCalendarState.lastSyncedAt) {
+    const versionSuffix = holidayCalendarState.lastSyncedAppVersion
+      ? ` / 앱 버전 ${holidayCalendarState.lastSyncedAppVersion}`
+      : ""
+    return `마지막 공휴일 동기화: ${formatStoredDateTime(holidayCalendarState.lastSyncedAt)} (${holidayCalendarState.publicHolidayDates.length}건${versionSuffix})`
+  }
+
+  return "앱 업데이트 후 최초 실행 시 공휴일 자동 동기화를 진행합니다."
+}
+
+function renderHolidayApiStatus() {
+  const { holidayApiConfigPathInput, holidayApiStatus } = getPersonalSettingsModalElements()
+  if (holidayApiConfigPathInput) {
+    holidayApiConfigPathInput.value = holidayCalendarState.configPath
+  }
+
+  if (holidayApiStatus) {
+    holidayApiStatus.textContent = getHolidayApiStatusMessage()
+  }
 }
 
 function getDailyLogItemNote(item) {
@@ -1193,9 +1310,14 @@ function submitConfirmModal() {
 }
 
 function getReportSavePath(reportType) {
-  return reportType === "weekly"
+  const basePath = reportType === "weekly"
     ? userProfileState.weeklyReportSavePath
     : userProfileState.dailyReportSavePath
+  const reportDateText = reportType === "weekly"
+    ? getWeeklyReportDateRange().endDateText
+    : getTodayDateText()
+
+  return buildReportDirectoryPath(basePath, reportDateText)
 }
 
 function updateReportPreviewAutoSendNotice() {
@@ -1534,7 +1656,9 @@ function openPersonalSettingsModal() {
     weeklyReportSavePathInput,
     dailyReportAutoSendTimeInput,
     mailBodyTextarea,
-    holidayDatesTextarea
+    holidayDatesTextarea,
+    holidayApiConfigPathInput,
+    holidayApiStatus
   } = getPersonalSettingsModalElements()
 
   const requiredElements = [
@@ -1549,7 +1673,9 @@ function openPersonalSettingsModal() {
     weeklyReportSavePathInput,
     dailyReportAutoSendTimeInput,
     mailBodyTextarea,
-    holidayDatesTextarea
+    holidayDatesTextarea,
+    holidayApiConfigPathInput,
+    holidayApiStatus
   ]
 
   if (requiredElements.some((element) => !element)) {
@@ -1574,6 +1700,8 @@ function openPersonalSettingsModal() {
   dailyReportAutoSendTimeInput.value = userProfileState.dailyReportAutoSendTime
   mailBodyTextarea.value = userProfileState.mailBody
   holidayDatesTextarea.value = userProfileState.holidayDates.join("\n")
+  holidayApiConfigPathInput.value = holidayCalendarState.configPath
+  renderHolidayApiStatus()
   setPersonalSettingsModalVisibility(true)
   scheduleElementFocus(nameInput)
 }
@@ -1688,6 +1816,22 @@ function formatDateAsText(date) {
   return `${year}-${month}-${day}`
 }
 
+function buildReportDirectoryPath(basePath, reportDateText) {
+  const normalizedBasePath = sanitizeProfileField(basePath).replace(/[\\/]+$/, "")
+  if (!normalizedBasePath) {
+    return ""
+  }
+
+  const reportDate = parseDateTextAsLocalDate(reportDateText)
+  if (Number.isNaN(reportDate.getTime())) {
+    return normalizedBasePath
+  }
+
+  const yearFolderName = `${reportDate.getFullYear()}년`
+  const monthFolderName = `${String(reportDate.getMonth() + 1).padStart(2, "0")}월`
+  return `${normalizedBasePath}\\${yearFolderName}\\${monthFolderName}`
+}
+
 function formatDateAsMonthDay(dateText) {
   const date = parseDateTextAsLocalDate(dateText)
   if (Number.isNaN(date.getTime())) {
@@ -1734,7 +1878,10 @@ function getWeeklyReportDateRange(referenceDate = new Date()) {
 }
 
 function getHolidayDateSet() {
-  return new Set(userProfileState.holidayDates)
+  return new Set([
+    ...userProfileState.holidayDates,
+    ...holidayCalendarState.publicHolidayDates
+  ])
 }
 
 function isBusinessDay(date, holidayDateSet = getHolidayDateSet()) {
@@ -2388,7 +2535,8 @@ function getReportSubjectBase(reportType) {
   const reportDateText = reportType === "weekly"
     ? getWeeklyReportDateRange().endDateText
     : getTodayDateText()
-  return `${userName}_${formatReportDateStamp(reportDateText)}_업무일지`
+  const reportLabel = reportType === "weekly" ? "주간업무일지" : "일일업무일지"
+  return `${userName}_${formatReportDateStamp(reportDateText)}_${reportLabel}`
 }
 
 function getReportFileName(reportType) {
@@ -2722,6 +2870,78 @@ function scheduleWeeklyPrintReminder(delayOverrideMs) {
   weeklyPrintReminderState.timerId = window.setTimeout(runWeeklyPrintReminderCheck, delayMs)
 }
 
+async function refreshHolidayApiConfigInfo() {
+  if (!window.appHolidayApi?.getConfigInfo) {
+    holidayCalendarState.syncStatusMessage = "공휴일 설정 파일 기능을 사용할 수 없습니다."
+    renderHolidayApiStatus()
+    return null
+  }
+
+  const info = await window.appHolidayApi.getConfigInfo()
+  setHolidayApiConfigInfo(info)
+  holidayCalendarState.syncStatusMessage = ""
+  renderHolidayApiStatus()
+  return info
+}
+
+async function syncPublicHolidayCalendar({ silent = false } = {}) {
+  if (!window.appHolidayApi?.sync) {
+    holidayCalendarState.syncStatusMessage = "공휴일 동기화 기능을 사용할 수 없습니다."
+    renderHolidayApiStatus()
+    return null
+  }
+
+  try {
+    const result = await window.appHolidayApi.sync()
+    setHolidayApiConfigInfo(result)
+
+    if (result.skipped) {
+      if (result.reason === "disabled") {
+        holidayCalendarState.syncStatusMessage = "공휴일 자동 동기화가 꺼져 있습니다. 설정 파일에서 enabled를 true로 바꾸세요."
+      } else if (result.reason === "missing-service-key") {
+        holidayCalendarState.syncStatusMessage = "설정 파일에 일반 인증키(serviceKey)를 입력하세요."
+      } else {
+        holidayCalendarState.syncStatusMessage = "공휴일 동기화를 건너뛰었습니다."
+      }
+
+      renderHolidayApiStatus()
+      return result
+    }
+
+    setHolidayCalendar({
+      publicHolidayDates: result.dates,
+      lastSyncedAt: result.syncedAt,
+      lastSyncedAppVersion: getCurrentAppVersion()
+    })
+    holidayCalendarState.syncStatusMessage = `공휴일 ${result.count}건을 동기화했습니다.`
+    renderHolidayApiStatus()
+    await persistAppData()
+    scheduleWeeklyPrintReminder()
+    runWeeklyPrintReminderCheck()
+    return result
+  } catch (error) {
+    console.error("Failed to sync public holidays.", error)
+    holidayCalendarState.syncStatusMessage = error?.message || "공휴일 동기화에 실패했습니다."
+    renderHolidayApiStatus()
+    if (!silent) {
+      openInfoModal({
+        title: "공휴일 동기화 실패",
+        message: holidayCalendarState.syncStatusMessage
+      })
+    }
+    return null
+  }
+}
+
+function shouldSyncPublicHolidayCalendarOnLaunch() {
+  const currentAppVersion = getCurrentAppVersion()
+  if (!currentAppVersion) {
+    return false
+  }
+
+  return holidayCalendarState.lastSyncedAppVersion !== currentAppVersion
+}
+
 function ensureDailyLogEmptyState() {
   const dailyLog = document.querySelector("#dailyLog")
   if (!dailyLog) {
@@ -3048,7 +3268,12 @@ function getDefaultAppData() {
     dailyLogs: [],
     dailyReportNotes: {},
     weeklyReportNotes: {},
-    weeklyPrintReminderHistory: {}
+    weeklyPrintReminderHistory: {},
+    holidayCalendar: {
+      publicHolidayDates: [],
+      lastSyncedAt: "",
+      lastSyncedAppVersion: ""
+    }
   }
 }
 
@@ -3191,7 +3416,8 @@ function normalizeAppData(rawData) {
     dailyLogs,
     dailyReportNotes,
     weeklyReportNotes,
-    weeklyPrintReminderHistory: normalizeWeeklyPrintReminderHistory(rawData.weeklyPrintReminderHistory)
+    weeklyPrintReminderHistory: normalizeWeeklyPrintReminderHistory(rawData.weeklyPrintReminderHistory),
+    holidayCalendar: normalizeHolidayCalendar(rawData.holidayCalendar)
   }
 }
 
@@ -3199,14 +3425,23 @@ function applyAppDataToDom(appData) {
   const categoryList = document.querySelector("#categories > .itemList")
   const groupsContainer = getDailyLogGroupsContainer()
   if (!categoryList || !groupsContainer) {
+    writeStartupDebugLog("applyAppDataToDom:missing-target", {
+      hasCategoryList: Boolean(categoryList),
+      hasGroupsContainer: Boolean(groupsContainer)
+    })
     return
   }
 
   const safeData = normalizeAppData(appData)
+  writeStartupDebugLog("applyAppDataToDom:start", {
+    categoryCount: safeData.categories.length,
+    dailyLogCount: safeData.dailyLogs.length
+  })
   setUserProfile(safeData.userProfile)
   dailyReportMemoState.notesByDate = { ...safeData.dailyReportNotes }
   weeklyReportMemoState.notesByPeriod = { ...safeData.weeklyReportNotes }
   setWeeklyPrintReminderHistory(safeData.weeklyPrintReminderHistory)
+  setHolidayCalendar(safeData.holidayCalendar)
   const categoryNameById = new Map(
     safeData.categories.map((category) => [category.id, category.label])
   )
@@ -3272,6 +3507,10 @@ function applyAppDataToDom(appData) {
     })
 
   groupsContainer.replaceChildren(groupsFragment)
+  writeStartupDebugLog("applyAppDataToDom:end", {
+    renderedGroups: groupsByDate.size,
+    renderedItems: safeData.dailyLogs.length
+  })
 }
 
 function serializeAppData() {
@@ -3329,7 +3568,12 @@ function serializeAppData() {
     dailyLogs,
     dailyReportNotes: { ...dailyReportMemoState.notesByDate },
     weeklyReportNotes: { ...weeklyReportMemoState.notesByPeriod },
-    weeklyPrintReminderHistory: { ...weeklyPrintReminderState.historyByWeek }
+    weeklyPrintReminderHistory: { ...weeklyPrintReminderState.historyByWeek },
+    holidayCalendar: {
+      publicHolidayDates: [...holidayCalendarState.publicHolidayDates],
+      lastSyncedAt: holidayCalendarState.lastSyncedAt,
+      lastSyncedAppVersion: holidayCalendarState.lastSyncedAppVersion
+    }
   }
 }
 
@@ -3351,14 +3595,23 @@ function persistAppData() {
 
 async function loadAppData() {
   if (!window.appStorage?.load) {
+    writeStartupDebugLog("loadAppData:no-storage")
     return getDefaultAppData()
   }
 
   try {
     const rawData = await window.appStorage.load()
+    writeStartupDebugLog("loadAppData:loaded", {
+      hasData: Boolean(rawData),
+      categoryCount: Array.isArray(rawData?.categories) ? rawData.categories.length : -1,
+      dailyLogCount: Array.isArray(rawData?.dailyLogs) ? rawData.dailyLogs.length : -1
+    })
     return normalizeAppData(rawData)
   } catch (error) {
     console.error("Failed to load app data.", error)
+    writeStartupDebugLog("loadAppData:error", {
+      error: error?.message || String(error)
+    })
     return getDefaultAppData()
   }
 }
@@ -3543,6 +3796,9 @@ function initializeDailyLogMetadata() {
 
   dailyLogState.items = itemsInOrder
   dailyLogState.nextOrder = total + 1
+  writeStartupDebugLog("initializeDailyLogMetadata", {
+    totalItems: total
+  })
 }
 
 function getDailyLogItems() {
@@ -3978,6 +4234,7 @@ function handleContextMenuAction(action) {
 function renderDailyLog() {
   const container = getDailyLogGroupsContainer()
   if (!container) {
+    writeStartupDebugLog("renderDailyLog:no-container")
     return
   }
 
@@ -4033,6 +4290,12 @@ function renderDailyLog() {
   updateDailyLogEmptyState()
   updateCategoryCounts()
   syncDailyLogDetailPanelState()
+  writeStartupDebugLog("renderDailyLog:end", {
+    selectedCategoryId: dailyLogState.selectedCategoryId,
+    totalItems: allItems.length,
+    visibleItems: visibleItems.length,
+    renderedGroups: itemsByDate.size
+  })
 }
 
 function applyCategoryFilter(selectedCategoryId) {
@@ -4865,6 +5128,8 @@ function bindPersonalSettingsModal() {
     dailyReportAutoSendTimeInput,
     mailBodyTextarea,
     holidayDatesTextarea,
+    holidayApiConfigPathInput,
+    holidayApiStatus,
     closeButton,
     cancelButton,
     submitButton
@@ -4885,6 +5150,8 @@ function bindPersonalSettingsModal() {
     dailyReportAutoSendTimeInput,
     mailBodyTextarea,
     holidayDatesTextarea,
+    holidayApiConfigPathInput,
+    holidayApiStatus,
     closeButton,
     cancelButton,
     submitButton
@@ -4912,7 +5179,8 @@ function bindPersonalSettingsModal() {
     recipientEmailInput,
     dailyReportSavePathInput,
     weeklyReportSavePathInput,
-    dailyReportAutoSendTimeInput
+    dailyReportAutoSendTimeInput,
+    holidayApiConfigPathInput
   ]
 
   const selectFolder = async (targetInput, title) => {
@@ -4930,11 +5198,11 @@ function bindPersonalSettingsModal() {
   }
 
   dailyReportSavePathButton.addEventListener("click", () => {
-    selectFolder(dailyReportSavePathInput, "일일보고서 저장 위치 선택")
+    selectFolder(dailyReportSavePathInput, "일일보고서 저장 루트 선택")
   })
 
   weeklyReportSavePathButton.addEventListener("click", () => {
-    selectFolder(weeklyReportSavePathInput, "주간 보고서 저장 위치 선택")
+    selectFolder(weeklyReportSavePathInput, "주간 보고서 저장 루트 선택")
   })
 
   submitOnEnterInputs.forEach((input) => {
@@ -5184,13 +5452,21 @@ function bindDailyLogCreation(categoryMap, inboxId, inboxName) {
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
-  document.title = window.appInfo?.name ?? "AutoDailyReport2"
+  writeStartupDebugLog("DOMContentLoaded:start", {
+    hasStorage: Boolean(window.appStorage?.load),
+    title: document.title
+  })
+  const appName = window.appInfo?.name ?? "AutoDailyReport2"
+  document.title = window.appInfo?.isPackaged === false
+    ? `${appName} (Dev)`
+    : appName
 
   initializeTodayMessage()
   bindAppWidthIndicator()
   await loadFooterQuote()
   initializeApplyPeriod()
-  applyAppDataToDom(await loadAppData())
+  const loadedAppData = await loadAppData()
+  applyAppDataToDom(loadedAppData)
 
   const { categoryMap, inboxId, inboxName } = initializeCategories()
   normalizeDailyLogItems(categoryMap, inboxId, inboxName)
@@ -5222,5 +5498,13 @@ window.addEventListener("DOMContentLoaded", async () => {
   renderDailyLog()
   persistAppData()
   scheduleDailyReportAutoSend()
+  await refreshHolidayApiConfigInfo()
+  if (shouldSyncPublicHolidayCalendarOnLaunch()) {
+    await syncPublicHolidayCalendar({ silent: true })
+  }
   runWeeklyPrintReminderCheck()
+  writeStartupDebugLog("DOMContentLoaded:end", {
+    categoryCount: document.querySelectorAll("#categories .itemList .item[data-category-id]").length,
+    dailyLogDomCount: document.querySelectorAll("#dailyLogGroups .item").length
+  })
 })

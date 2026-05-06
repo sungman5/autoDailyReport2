@@ -1,5 +1,7 @@
 const { app, BrowserWindow, Menu, ipcMain, dialog } = require("electron");
 const fs = require("fs/promises");
+const http = require("http");
+const https = require("https");
 const path = require("path");
 const tls = require("tls");
 const { autoUpdater } = require("electron-updater");
@@ -8,12 +10,15 @@ const SMTP_HOST = "smtp.gmail.com";
 const SMTP_PORT = 465;
 const UPDATE_CHECK_DELAY_MS = 3000;
 const DEFERRED_UPDATE_CHECK_DELAY_MS = 250;
+const FIXED_USER_DATA_DIRNAME = "auto-daily-report2";
 
 let updaterState = {
   deferredVersion: ""
 };
 let isInstallingDeferredUpdate = false;
 let promptedUpdateVersion = "";
+
+app.setPath("userData", path.join(app.getPath("appData"), FIXED_USER_DATA_DIRNAME));
 
 function getDataFilePath() {
   return path.join(app.getPath("userData"), "app-data.json");
@@ -25,6 +30,324 @@ function getQuotesFilePath() {
 
 function getUpdaterStateFilePath() {
   return path.join(app.getPath("userData"), "updater-state.json");
+}
+
+function getHolidayApiConfigPath() {
+  return path.join(__dirname, "data", "holiday-api-config.json");
+}
+
+function getDebugLogPath() {
+  return path.join(__dirname, "debug-startup.log");
+}
+
+async function appendDebugLog(message) {
+  const line = `${new Date().toISOString()} ${message}\n`;
+  await fs.appendFile(getDebugLogPath(), line, "utf8");
+}
+
+async function migrateLegacyUserDataIfNeeded() {
+  const targetUserDataPath = app.getPath("userData");
+  const legacyUserDataPaths = [
+    path.join(app.getPath("appData"), "AutoDailyReport2")
+  ].filter((candidatePath) => candidatePath !== targetUserDataPath);
+
+  await fs.mkdir(targetUserDataPath, { recursive: true });
+
+  for (const legacyPath of legacyUserDataPaths) {
+    const legacyDataFilePath = path.join(legacyPath, "app-data.json");
+    const targetDataFilePath = path.join(targetUserDataPath, "app-data.json");
+
+    try {
+      await fs.access(targetDataFilePath);
+      break;
+    } catch (error) {
+      if (!error || error.code !== "ENOENT") {
+        throw error;
+      }
+    }
+
+    try {
+      await fs.access(legacyDataFilePath);
+    } catch (error) {
+      if (!error || error.code !== "ENOENT") {
+        throw error;
+      }
+      continue;
+    }
+
+    const legacyRawData = await fs.readFile(legacyDataFilePath, "utf8");
+    await fs.writeFile(targetDataFilePath, legacyRawData, "utf8");
+    break;
+  }
+}
+
+function createDefaultHolidayApiConfig() {
+  return {
+    enabled: false,
+    endpoint: "https://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService/getRestDeInfo",
+    serviceKey: "",
+    serviceKeyParamName: "ServiceKey",
+    parameters: {
+      pageNo: "1",
+      numOfRows: "50"
+    },
+    yearParamName: "solYear",
+    monthParamName: "solMonth",
+    holidayFlagField: "isHoliday",
+    holidayFlagValue: "Y",
+    dateField: "locdate",
+    nameField: "dateName",
+    syncYearOffsets: [-1, 0, 1]
+  };
+}
+
+function normalizeHolidayApiConfig(rawConfig) {
+  const defaultConfig = createDefaultHolidayApiConfig();
+  const rawParameters = rawConfig?.parameters && typeof rawConfig.parameters === "object"
+    ? rawConfig.parameters
+    : defaultConfig.parameters;
+  const normalizedOffsets = Array.isArray(rawConfig?.syncYearOffsets)
+    ? rawConfig.syncYearOffsets
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value) && value >= -5 && value <= 5)
+    : defaultConfig.syncYearOffsets;
+
+  return {
+    enabled: rawConfig?.enabled === true,
+    endpoint: typeof rawConfig?.endpoint === "string" && rawConfig.endpoint.trim()
+      ? rawConfig.endpoint.trim()
+      : defaultConfig.endpoint,
+    serviceKey: typeof rawConfig?.serviceKey === "string" ? rawConfig.serviceKey.trim() : "",
+    serviceKeyParamName: typeof rawConfig?.serviceKeyParamName === "string" && rawConfig.serviceKeyParamName.trim()
+      ? rawConfig.serviceKeyParamName.trim()
+      : defaultConfig.serviceKeyParamName,
+    parameters: Object.fromEntries(
+      Object.entries(rawParameters)
+        .map(([key, value]) => [String(key).trim(), String(value ?? "").trim()])
+        .filter(([key, value]) => key && value)
+    ),
+    yearParamName: typeof rawConfig?.yearParamName === "string" && rawConfig.yearParamName.trim()
+      ? rawConfig.yearParamName.trim()
+      : defaultConfig.yearParamName,
+    monthParamName: typeof rawConfig?.monthParamName === "string" && rawConfig.monthParamName.trim()
+      ? rawConfig.monthParamName.trim()
+      : defaultConfig.monthParamName,
+    holidayFlagField: typeof rawConfig?.holidayFlagField === "string" && rawConfig.holidayFlagField.trim()
+      ? rawConfig.holidayFlagField.trim()
+      : defaultConfig.holidayFlagField,
+    holidayFlagValue: typeof rawConfig?.holidayFlagValue === "string" && rawConfig.holidayFlagValue.trim()
+      ? rawConfig.holidayFlagValue.trim()
+      : defaultConfig.holidayFlagValue,
+    dateField: typeof rawConfig?.dateField === "string" && rawConfig.dateField.trim()
+      ? rawConfig.dateField.trim()
+      : defaultConfig.dateField,
+    nameField: typeof rawConfig?.nameField === "string" && rawConfig.nameField.trim()
+      ? rawConfig.nameField.trim()
+      : defaultConfig.nameField,
+    syncYearOffsets: normalizedOffsets.length > 0
+      ? Array.from(new Set(normalizedOffsets)).sort((left, right) => left - right)
+      : defaultConfig.syncYearOffsets
+  };
+}
+
+async function ensureHolidayApiConfigFile() {
+  const configPath = getHolidayApiConfigPath();
+
+  try {
+    await fs.access(configPath);
+  } catch (error) {
+    if (!error || error.code !== "ENOENT") {
+      throw error;
+    }
+
+    const defaultConfig = createDefaultHolidayApiConfig();
+    await fs.mkdir(path.dirname(configPath), { recursive: true });
+    await fs.writeFile(configPath, JSON.stringify(defaultConfig, null, 2), "utf8");
+  }
+
+  return configPath;
+}
+
+async function loadHolidayApiConfig() {
+  const configPath = await ensureHolidayApiConfigFile();
+
+  try {
+    const raw = await fs.readFile(configPath, "utf8");
+    return {
+      path: configPath,
+      config: normalizeHolidayApiConfig(JSON.parse(raw))
+    };
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error(`공휴일 설정 파일 JSON 형식이 올바르지 않습니다: ${configPath}`);
+    }
+
+    throw error;
+  }
+}
+
+function buildHolidayApiRequestUrl(config, year, month) {
+  const endpointUrl = new URL(config.endpoint);
+  if (!endpointUrl.pathname.endsWith("/getRestDeInfo")) {
+    endpointUrl.pathname = `${endpointUrl.pathname.replace(/\/$/, "")}/getRestDeInfo`;
+  }
+
+  const searchParams = endpointUrl.searchParams;
+  searchParams.set(config.serviceKeyParamName, config.serviceKey);
+  Object.entries(config.parameters).forEach(([key, value]) => {
+    searchParams.set(key, value);
+  });
+  searchParams.set(config.yearParamName, String(year));
+  searchParams.set(config.monthParamName, String(month).padStart(2, "0"));
+  return endpointUrl;
+}
+
+function requestText(targetUrl) {
+  const client = targetUrl.protocol === "http:" ? http : https;
+
+  return new Promise((resolve, reject) => {
+    const request = client.get(targetUrl, (response) => {
+      if (response.statusCode && response.statusCode >= 400) {
+        reject(new Error(`공휴일 API 요청이 실패했습니다. (${response.statusCode})`));
+        response.resume();
+        return;
+      }
+
+      response.setEncoding("utf8");
+      let body = "";
+      response.on("data", (chunk) => {
+        body += chunk;
+      });
+      response.on("end", () => {
+        resolve(body);
+      });
+    });
+
+    request.on("error", reject);
+  });
+}
+
+function decodeXmlEntities(value) {
+  return String(value ?? "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'");
+}
+
+function getXmlTagValue(xmlText, tagName) {
+  const matched = new RegExp(`<${tagName}>([\\s\\S]*?)</${tagName}>`).exec(xmlText);
+  return matched ? decodeXmlEntities(matched[1].trim()) : "";
+}
+
+function formatLocdate(dateText) {
+  const matched = /^(\d{4})(\d{2})(\d{2})$/.exec(String(dateText ?? "").trim());
+  if (!matched) {
+    return "";
+  }
+
+  const [, year, month, day] = matched;
+  return `${year}-${month}-${day}`;
+}
+
+function parseHolidayApiResponse(xmlText, config) {
+  const items = Array.from(xmlText.matchAll(/<item>([\s\S]*?)<\/item>/g))
+    .map((matched) => matched[1]);
+  const holidays = [];
+
+  items.forEach((itemXml) => {
+    const holidayFlag = getXmlTagValue(itemXml, config.holidayFlagField);
+    if (holidayFlag !== config.holidayFlagValue) {
+      return;
+    }
+
+    const dateText = formatLocdate(getXmlTagValue(itemXml, config.dateField));
+    if (!dateText) {
+      return;
+    }
+
+    holidays.push({
+      date: dateText,
+      name: getXmlTagValue(itemXml, config.nameField)
+    });
+  });
+
+  return holidays;
+}
+
+function assertHolidayApiResponseOk(xmlText) {
+  const resultCode = getXmlTagValue(xmlText, "resultCode");
+  if (!resultCode || resultCode === "00") {
+    return;
+  }
+
+  const resultMessage = getXmlTagValue(xmlText, "resultMsg") || "알 수 없는 오류";
+  throw new Error(`공휴일 API 오류(${resultCode}): ${resultMessage}`);
+}
+
+async function syncPublicHolidayDates() {
+  const { path: configPath, config } = await loadHolidayApiConfig();
+
+  if (!config.enabled) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: "disabled",
+      path: configPath,
+      enabled: config.enabled,
+      endpoint: config.endpoint,
+      hasServiceKey: Boolean(config.serviceKey),
+      dates: [],
+      count: 0
+    };
+  }
+
+  if (!config.serviceKey) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: "missing-service-key",
+      path: configPath,
+      enabled: config.enabled,
+      endpoint: config.endpoint,
+      hasServiceKey: Boolean(config.serviceKey),
+      dates: [],
+      count: 0
+    };
+  }
+
+  const currentYear = new Date().getFullYear();
+  const targetYears = Array.from(
+    new Set(config.syncYearOffsets.map((offset) => currentYear + offset))
+  ).sort((left, right) => left - right);
+  const holidaysByDate = new Map();
+
+  for (const year of targetYears) {
+    for (let month = 1; month <= 12; month += 1) {
+      const requestUrl = buildHolidayApiRequestUrl(config, year, month);
+      const xmlText = await requestText(requestUrl);
+      assertHolidayApiResponseOk(xmlText);
+      parseHolidayApiResponse(xmlText, config).forEach((holiday) => {
+        holidaysByDate.set(holiday.date, holiday.name);
+      });
+    }
+  }
+
+  return {
+    ok: true,
+    skipped: false,
+    path: configPath,
+    enabled: config.enabled,
+    endpoint: config.endpoint,
+    hasServiceKey: Boolean(config.serviceKey),
+    dates: Array.from(holidaysByDate.keys()).sort(),
+    holidays: Array.from(holidaysByDate.entries())
+      .sort(([leftDate], [rightDate]) => leftDate.localeCompare(rightDate))
+      .map(([date, name]) => ({ date, name })),
+    count: holidaysByDate.size,
+    syncedAt: new Date().toISOString()
+  };
 }
 
 function normalizeUpdaterState(rawState) {
@@ -124,6 +447,19 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false
     }
+  });
+
+  mainWindow.webContents.on("did-finish-load", () => {
+    appendDebugLog(`[main] did-finish-load userData=${app.getPath("userData")}`).catch(() => {});
+  });
+  mainWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+    appendDebugLog(`[console:${level}] ${sourceId}:${line} ${message}`).catch(() => {});
+  });
+  mainWindow.webContents.on("preload-error", (_event, preloadPath, error) => {
+    appendDebugLog(`[main] preload-error path=${preloadPath} error=${error?.message || error}`).catch(() => {});
+  });
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    appendDebugLog(`[main] render-process-gone reason=${details?.reason || ""} exitCode=${details?.exitCode || ""}`).catch(() => {});
   });
 
   mainWindow.loadFile(path.join(__dirname, "src", "index.html"));
@@ -596,6 +932,32 @@ ipcMain.handle("dialog:select-folder", async (_event, options = {}) => {
   return result.filePaths[0];
 });
 
+ipcMain.handle("holiday-api:get-config-info", async () => {
+  const { path: configPath, config } = await loadHolidayApiConfig();
+  return {
+    path: configPath,
+    enabled: config.enabled,
+    endpoint: config.endpoint,
+    hasServiceKey: Boolean(config.serviceKey)
+  };
+});
+
+ipcMain.handle("holiday-api:sync", async () => {
+  return syncPublicHolidayDates();
+});
+
+ipcMain.on("debug:log", (_event, message) => {
+  appendDebugLog(`[renderer] ${String(message ?? "")}`).catch(() => {});
+});
+
+ipcMain.on("app:get-info", (event) => {
+  event.returnValue = {
+    name: app.getName(),
+    version: app.getVersion(),
+    isPackaged: app.isPackaged
+  };
+});
+
 ipcMain.handle("report:save-pdf", async (_event, payload) => {
   return saveReportPdf(payload);
 });
@@ -615,7 +977,9 @@ ipcMain.handle("mail:send", async (_event, payload) => {
   return { ok: true };
 });
 
-const gotSingleInstanceLock = app.requestSingleInstanceLock();
+const gotSingleInstanceLock = app.isPackaged
+  ? app.requestSingleInstanceLock()
+  : true;
 
 if (!gotSingleInstanceLock) {
   app.quit();
@@ -633,6 +997,7 @@ if (!gotSingleInstanceLock) {
   });
 
   app.whenReady().then(async () => {
+    await migrateLegacyUserDataIfNeeded();
     updaterState = await loadUpdaterState();
     if (updaterState.deferredVersion === app.getVersion()) {
       await clearDeferredUpdateVersion();

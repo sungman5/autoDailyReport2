@@ -1,8 +1,11 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
+const appInfo = ipcRenderer.sendSync("app:get-info");
+
 contextBridge.exposeInMainWorld("appInfo", {
-  name: "AutoDailyReport2",
-  version: ""
+  name: typeof appInfo?.name === "string" && appInfo.name.trim() ? appInfo.name.trim() : "AutoDailyReport2",
+  version: typeof appInfo?.version === "string" ? appInfo.version.trim() : "",
+  isPackaged: appInfo?.isPackaged === true
 });
 
 contextBridge.exposeInMainWorld("appStorage", {
@@ -16,6 +19,15 @@ contextBridge.exposeInMainWorld("appQuotes", {
 
 contextBridge.exposeInMainWorld("appDialogs", {
   selectFolder: (options) => ipcRenderer.invoke("dialog:select-folder", options)
+});
+
+contextBridge.exposeInMainWorld("appHolidayApi", {
+  getConfigInfo: () => ipcRenderer.invoke("holiday-api:get-config-info"),
+  sync: () => ipcRenderer.invoke("holiday-api:sync")
+});
+
+contextBridge.exposeInMainWorld("appDebug", {
+  log: (message) => ipcRenderer.send("debug:log", message)
 });
 
 contextBridge.exposeInMainWorld("appReports", {
