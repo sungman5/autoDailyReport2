@@ -277,12 +277,29 @@
                 <span>메일본문내용</span>
                 <textarea id="personalSettingsMailBodyTextarea" rows="5"></textarea>
             </label>
+            <label class="modalField personalSettingsField" for="personalSettingsHolidayDatesTextarea">
+                <span>쉬는날</span>
+                <textarea id="personalSettingsHolidayDatesTextarea" rows="5" placeholder="YYYY-MM-DD&#10;예: 2026-05-05"></textarea>
+            </label>
             <p class="modalHint">저장한 정보는 보고서 작성자 정보와 메일 발송 설정에 사용됩니다.</p>
         </div>
         <div class="modalFooter">
             <button type="button" class="modalSecondaryButton" id="cancelPersonalSettingsModal">취소</button>
             <button type="button" class="modalPrimaryButton" id="submitPersonalSettingsModal">저장</button>
         </div>
+    </div>
+</div>
+<div class="weeklyReminderPopup" id="weeklyPrintReminderPopup" hidden aria-hidden="true" role="dialog" aria-labelledby="weeklyPrintReminderTitle">
+    <div class="weeklyReminderPopupHeader">
+        <h3 id="weeklyPrintReminderTitle">주간 업무일지 알림</h3>
+        <button type="button" class="modalCloseButton weeklyReminderCloseButton" id="closeWeeklyPrintReminderPopup" aria-label="알림 닫기">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="#000000" viewBox="0 0 256 256" aria-hidden="true"><path d="M202.83,197.17a4,4,0,0,1-5.66,5.66L128,133.66,58.83,202.83a4,4,0,0,1-5.66-5.66L122.34,128,53.17,58.83a4,4,0,0,1,5.66-5.66L128,122.34l69.17-69.17a4,4,0,1,1,5.66,5.66L133.66,128Z"></path></svg>
+        </button>
+    </div>
+    <p class="weeklyReminderMessage" id="weeklyPrintReminderMessage">주간 업무일지를 인쇄하시겠습니까? 인쇄하지 않은 자료는 사라집니다.</p>
+    <div class="weeklyReminderActions">
+        <button type="button" class="modalSecondaryButton" id="dismissWeeklyPrintReminderButton">닫기</button>
+        <button type="button" class="modalPrimaryButton" id="openWeeklyPrintReminderReportButton">주간 보고서 보기</button>
     </div>
 </div>
 <div class="contextMenu" id="appContextMenu" hidden></div>

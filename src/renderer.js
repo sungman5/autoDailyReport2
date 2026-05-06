@@ -4,7 +4,11 @@ const RECURRING_CATEGORY_ID = "category-recurring"
 const RECURRING_CATEGORY_NAME = "상시 업무"
 const ALL_CATEGORIES_ITEM_ID = "showAllCategories"
 const COMPACT_CATEGORY_BREAKPOINT = 1080
-const STORAGE_VERSION = 2
+const STORAGE_VERSION = 3
+const WEEKLY_PRINT_REMINDER_HOUR = 17
+const WEEKLY_PRINT_REMINDER_MINUTE = 0
+const MAX_WEEKLY_PRINT_REMINDER_HISTORY = 26
+const WEEKLY_PRINT_REMINDER_MESSAGE = "주간 업무일지를 인쇄하시겠습니까? 인쇄하지 않은 자료는 사라집니다."
 const CATEGORY_PANEL_EXPANDED_ICON = `
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="#000000" viewBox="0 0 256 256" aria-hidden="true">
     <path d="M210.83,162.83a4,4,0,0,1-5.66,0L128,85.66,50.83,162.83a4,4,0,0,1-5.66-5.66l80-80a4,4,0,0,1,5.66,0l80,80A4,4,0,0,1,210.83,162.83Z"></path>
@@ -70,6 +74,7 @@ const userProfileState = {
   weeklyReportSavePath: "",
   dailyReportAutoSendTime: "",
   mailBody: "",
+  holidayDates: [],
   dailyReportLastAutoSentDate: ""
 }
 
@@ -106,6 +111,11 @@ const reportMemoModalState = {
 const dailyReportAutoSendState = {
   timerId: null,
   isSending: false
+}
+
+const weeklyPrintReminderState = {
+  timerId: null,
+  historyByWeek: {}
 }
 
 const reportDeliveryState = {
@@ -522,9 +532,20 @@ function getPersonalSettingsModalElements() {
     weeklyReportSavePathButton: document.querySelector("#selectWeeklyReportSavePathButton"),
     dailyReportAutoSendTimeInput: document.querySelector("#personalSettingsDailyReportAutoSendTimeInput"),
     mailBodyTextarea: document.querySelector("#personalSettingsMailBodyTextarea"),
+    holidayDatesTextarea: document.querySelector("#personalSettingsHolidayDatesTextarea"),
     closeButton: document.querySelector("#closePersonalSettingsModal"),
     cancelButton: document.querySelector("#cancelPersonalSettingsModal"),
     submitButton: document.querySelector("#submitPersonalSettingsModal")
+  }
+}
+
+function getWeeklyPrintReminderPopupElements() {
+  return {
+    popup: document.querySelector("#weeklyPrintReminderPopup"),
+    message: document.querySelector("#weeklyPrintReminderMessage"),
+    closeButton: document.querySelector("#closeWeeklyPrintReminderPopup"),
+    dismissButton: document.querySelector("#dismissWeeklyPrintReminderButton"),
+    openReportButton: document.querySelector("#openWeeklyPrintReminderReportButton")
   }
 }
 
@@ -555,6 +576,90 @@ function getDefaultFocusableElement() {
 
 function sanitizeDailyLogDateText(dateText) {
   return /^\d{4}-\d{2}-\d{2}$/.test(dateText ?? "") ? dateText : ""
+}
+
+function sanitizeHolidayDateList(value) {
+  const tokens = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/[\s,]+/)
+      : []
+  const seen = new Set()
+
+  return tokens
+    .map((token) => sanitizeDailyLogDateText(String(token ?? "").trim()))
+    .filter((dateText) => {
+      if (!dateText || seen.has(dateText)) {
+        return false
+      }
+
+      seen.add(dateText)
+      return true
+    })
+    .sort()
+}
+
+function sanitizeStoredTimestamp(value) {
+  return typeof value === "string" ? value.trim() : ""
+}
+
+function pruneWeeklyPrintReminderHistory(historyByWeek = {}) {
+  return Object.fromEntries(
+    Object.entries(historyByWeek)
+      .filter(([weekKey]) => sanitizeDailyLogDateText(weekKey))
+      .sort(([leftWeekKey], [rightWeekKey]) => leftWeekKey.localeCompare(rightWeekKey))
+      .slice(-MAX_WEEKLY_PRINT_REMINDER_HISTORY)
+  )
+}
+
+function normalizeWeeklyPrintReminderHistory(rawHistory) {
+  if (!rawHistory || typeof rawHistory !== "object") {
+    return {}
+  }
+
+  const historyByWeek = {}
+  Object.entries(rawHistory).forEach(([weekKey, entry]) => {
+    const safeWeekKey = sanitizeDailyLogDateText(weekKey)
+    if (!safeWeekKey || !entry || typeof entry !== "object") {
+      return
+    }
+
+    historyByWeek[safeWeekKey] = {
+      printedAt: sanitizeStoredTimestamp(entry.printedAt),
+      remindedAt: sanitizeStoredTimestamp(entry.remindedAt)
+    }
+  })
+
+  return pruneWeeklyPrintReminderHistory(historyByWeek)
+}
+
+function setWeeklyPrintReminderHistory(historyByWeek = {}) {
+  weeklyPrintReminderState.historyByWeek = normalizeWeeklyPrintReminderHistory(historyByWeek)
+}
+
+function upsertWeeklyPrintReminderHistoryEntry(weekKey, patch = {}) {
+  const safeWeekKey = sanitizeDailyLogDateText(weekKey)
+  if (!safeWeekKey) {
+    return
+  }
+
+  const currentEntry = weeklyPrintReminderState.historyByWeek[safeWeekKey] ?? {
+    printedAt: "",
+    remindedAt: ""
+  }
+
+  weeklyPrintReminderState.historyByWeek = pruneWeeklyPrintReminderHistory({
+    ...weeklyPrintReminderState.historyByWeek,
+    [safeWeekKey]: {
+      printedAt: sanitizeStoredTimestamp(patch.printedAt ?? currentEntry.printedAt),
+      remindedAt: sanitizeStoredTimestamp(patch.remindedAt ?? currentEntry.remindedAt)
+    }
+  })
+}
+
+function getWeeklyPrintReminderHistoryEntry(weekKey) {
+  const safeWeekKey = sanitizeDailyLogDateText(weekKey)
+  return safeWeekKey ? weeklyPrintReminderState.historyByWeek[safeWeekKey] ?? null : null
 }
 
 function getDailyLogItemNote(item) {
@@ -831,6 +936,16 @@ function setInfoModalVisibility(isOpen) {
   modal.setAttribute("aria-hidden", String(!isOpen))
 }
 
+function setWeeklyPrintReminderPopupVisibility(isOpen) {
+  const { popup } = getWeeklyPrintReminderPopupElements()
+  if (!popup) {
+    return
+  }
+
+  popup.hidden = !isOpen
+  popup.setAttribute("aria-hidden", String(!isOpen))
+}
+
 function setReportPreviewModalVisibility(isOpen) {
   const { modal } = getReportPreviewModalElements()
   if (!modal) {
@@ -964,6 +1079,15 @@ function closeInfoModal() {
   infoModalState.message = ""
 }
 
+function closeWeeklyPrintReminderPopup() {
+  const { popup } = getWeeklyPrintReminderPopupElements()
+  if (!popup) {
+    return
+  }
+
+  setWeeklyPrintReminderPopupVisibility(false)
+}
+
 function closeReportPreviewModal() {
   const { frame } = getReportPreviewModalElements()
   if (frame) {
@@ -1044,6 +1168,17 @@ function openInfoModal({ title, message }) {
 
   setInfoModalVisibility(true)
   scheduleElementFocus(submitButton)
+}
+
+function openWeeklyPrintReminderPopup(message = WEEKLY_PRINT_REMINDER_MESSAGE) {
+  const { popup, message: messageNode, openReportButton } = getWeeklyPrintReminderPopupElements()
+  if (!popup || !messageNode || !openReportButton) {
+    return
+  }
+
+  messageNode.textContent = message
+  setWeeklyPrintReminderPopupVisibility(true)
+  scheduleElementFocus(openReportButton)
 }
 
 function submitConfirmModal() {
@@ -1366,6 +1501,7 @@ function sanitizeProfileTextAreaField(value) {
 
 function setUserProfile(profile = {}) {
   const hasLastAutoSentDate = Object.prototype.hasOwnProperty.call(profile, "dailyReportLastAutoSentDate")
+  const hasHolidayDates = Object.prototype.hasOwnProperty.call(profile, "holidayDates")
 
   userProfileState.name = sanitizeProfileField(profile.name)
   userProfileState.department = sanitizeProfileField(profile.department)
@@ -1377,6 +1513,9 @@ function setUserProfile(profile = {}) {
   userProfileState.weeklyReportSavePath = sanitizeProfileField(profile.weeklyReportSavePath)
   userProfileState.dailyReportAutoSendTime = sanitizeProfileField(profile.dailyReportAutoSendTime)
   userProfileState.mailBody = sanitizeProfileTextAreaField(profile.mailBody)
+  userProfileState.holidayDates = hasHolidayDates
+    ? sanitizeHolidayDateList(profile.holidayDates)
+    : userProfileState.holidayDates
   userProfileState.dailyReportLastAutoSentDate = hasLastAutoSentDate
     ? sanitizeProfileField(profile.dailyReportLastAutoSentDate)
     : userProfileState.dailyReportLastAutoSentDate
@@ -1394,7 +1533,8 @@ function openPersonalSettingsModal() {
     dailyReportSavePathInput,
     weeklyReportSavePathInput,
     dailyReportAutoSendTimeInput,
-    mailBodyTextarea
+    mailBodyTextarea,
+    holidayDatesTextarea
   } = getPersonalSettingsModalElements()
 
   const requiredElements = [
@@ -1408,7 +1548,8 @@ function openPersonalSettingsModal() {
     dailyReportSavePathInput,
     weeklyReportSavePathInput,
     dailyReportAutoSendTimeInput,
-    mailBodyTextarea
+    mailBodyTextarea,
+    holidayDatesTextarea
   ]
 
   if (requiredElements.some((element) => !element)) {
@@ -1432,6 +1573,7 @@ function openPersonalSettingsModal() {
   weeklyReportSavePathInput.value = userProfileState.weeklyReportSavePath
   dailyReportAutoSendTimeInput.value = userProfileState.dailyReportAutoSendTime
   mailBodyTextarea.value = userProfileState.mailBody
+  holidayDatesTextarea.value = userProfileState.holidayDates.join("\n")
   setPersonalSettingsModalVisibility(true)
   scheduleElementFocus(nameInput)
 }
@@ -1447,7 +1589,8 @@ function submitPersonalSettingsModal() {
     dailyReportSavePathInput,
     weeklyReportSavePathInput,
     dailyReportAutoSendTimeInput,
-    mailBodyTextarea
+    mailBodyTextarea,
+    holidayDatesTextarea
   } = getPersonalSettingsModalElements()
 
   const requiredElements = [
@@ -1460,7 +1603,8 @@ function submitPersonalSettingsModal() {
     dailyReportSavePathInput,
     weeklyReportSavePathInput,
     dailyReportAutoSendTimeInput,
-    mailBodyTextarea
+    mailBodyTextarea,
+    holidayDatesTextarea
   ]
 
   if (requiredElements.some((element) => !element)) {
@@ -1477,11 +1621,14 @@ function submitPersonalSettingsModal() {
     dailyReportSavePath: dailyReportSavePathInput.value,
     weeklyReportSavePath: weeklyReportSavePathInput.value,
     dailyReportAutoSendTime: dailyReportAutoSendTimeInput.value,
-    mailBody: mailBodyTextarea.value
+    mailBody: mailBodyTextarea.value,
+    holidayDates: holidayDatesTextarea.value
   })
   closePersonalSettingsModal()
   persistAppData()
   scheduleDailyReportAutoSend()
+  scheduleWeeklyPrintReminder()
+  runWeeklyPrintReminderCheck()
   updateReportPreviewAutoSendNotice()
   scheduleElementFocus(getDefaultFocusableElement())
 }
@@ -1512,6 +1659,12 @@ function parseDateTextAsLocalDate(dateText) {
 
   const [, yearText, monthText, dayText] = matched
   return new Date(Number(yearText), Number(monthText) - 1, Number(dayText))
+}
+
+function addDays(date, amount) {
+  const nextDate = new Date(date)
+  nextDate.setDate(nextDate.getDate() + amount)
+  return nextDate
 }
 
 function formatDailyReportDate(dateText) {
@@ -1562,9 +1715,8 @@ function formatWeeklyReportPeriod(startDateText, endDateText) {
   return `${startYear}년 ${startMonth}월 ${startDay}일 - ${endMonth}월 ${endDay}일`
 }
 
-function getWeeklyReportDateRange() {
-  const now = new Date()
-  const reportStartDate = new Date(now)
+function getWeeklyReportDateRange(referenceDate = new Date()) {
+  const reportStartDate = new Date(referenceDate)
   reportStartDate.setHours(0, 0, 0, 0)
   const daysSinceTuesday = (reportStartDate.getDay() - 2 + 7) % 7
   reportStartDate.setDate(reportStartDate.getDate() - daysSinceTuesday)
@@ -1579,6 +1731,46 @@ function getWeeklyReportDateRange() {
     startDateText: formatDateAsText(reportStartDate),
     endDateText: formatDateAsText(reportEndDate)
   }
+}
+
+function getHolidayDateSet() {
+  return new Set(userProfileState.holidayDates)
+}
+
+function isBusinessDay(date, holidayDateSet = getHolidayDateSet()) {
+  const day = date.getDay()
+  if (day === 0 || day === 6) {
+    return false
+  }
+
+  return !holidayDateSet.has(formatDateAsText(date))
+}
+
+function getWeeklyPrintDueContext(referenceDate = new Date()) {
+  const { startDateText, endDateText } = getWeeklyReportDateRange(referenceDate)
+  const holidayDateSet = getHolidayDateSet()
+  const reportEndDate = parseDateTextAsLocalDate(endDateText)
+  const dueAt = new Date(reportEndDate)
+  dueAt.setHours(0, 0, 0, 0)
+
+  while (!isBusinessDay(dueAt, holidayDateSet)) {
+    dueAt.setDate(dueAt.getDate() - 1)
+  }
+
+  dueAt.setHours(WEEKLY_PRINT_REMINDER_HOUR, WEEKLY_PRINT_REMINDER_MINUTE, 0, 0)
+
+  return {
+    weekKey: endDateText,
+    reportStartDateText: startDateText,
+    reportEndDateText: endDateText,
+    dueAt
+  }
+}
+
+function getNextWeeklyPrintDueContext(referenceDate = new Date()) {
+  const currentContext = getWeeklyPrintDueContext(referenceDate)
+  const nextReferenceDate = addDays(parseDateTextAsLocalDate(currentContext.reportEndDateText), 1)
+  return getWeeklyPrintDueContext(nextReferenceDate)
 }
 
 function getWeeklyPlanDateRange() {
@@ -2343,6 +2535,7 @@ async function saveAndSendReport(reportType, options = {}) {
 
     if (reportType === "weekly") {
       await window.appReports.print({ html })
+      await markWeeklyPrintCompleted()
       return saveResult
     }
 
@@ -2463,6 +2656,70 @@ function scheduleDailyReportAutoSend(delayOverrideMs) {
   }
 
   dailyReportAutoSendState.timerId = window.setTimeout(runDailyReportAutoSendIfDue, delayMs)
+}
+
+function hasWeeklyPrintCompleted(weekKey) {
+  return Boolean(getWeeklyPrintReminderHistoryEntry(weekKey)?.printedAt)
+}
+
+function hasWeeklyPrintReminderBeenShown(weekKey) {
+  return Boolean(getWeeklyPrintReminderHistoryEntry(weekKey)?.remindedAt)
+}
+
+function getWeeklyPrintReminderDelay(now = new Date()) {
+  const context = getWeeklyPrintDueContext(now)
+  if (!hasWeeklyPrintCompleted(context.weekKey) && !hasWeeklyPrintReminderBeenShown(context.weekKey)) {
+    return Math.max(0, context.dueAt.getTime() - now.getTime())
+  }
+
+  const nextContext = getNextWeeklyPrintDueContext(now)
+  return Math.max(0, nextContext.dueAt.getTime() - now.getTime())
+}
+
+function markWeeklyPrintReminderShown(context = getWeeklyPrintDueContext()) {
+  upsertWeeklyPrintReminderHistoryEntry(context.weekKey, {
+    remindedAt: new Date().toISOString()
+  })
+  persistAppData()
+}
+
+function markWeeklyPrintCompleted(referenceDate = new Date()) {
+  const context = getWeeklyPrintDueContext(referenceDate)
+  upsertWeeklyPrintReminderHistoryEntry(context.weekKey, {
+    printedAt: new Date().toISOString()
+  })
+  closeWeeklyPrintReminderPopup()
+  scheduleWeeklyPrintReminder()
+  return persistAppData()
+}
+
+function runWeeklyPrintReminderCheck() {
+  const now = new Date()
+  const context = getWeeklyPrintDueContext(now)
+  const shouldShowReminder =
+    now.getTime() >= context.dueAt.getTime() &&
+    !hasWeeklyPrintCompleted(context.weekKey) &&
+    !hasWeeklyPrintReminderBeenShown(context.weekKey)
+
+  if (shouldShowReminder) {
+    markWeeklyPrintReminderShown(context)
+    openWeeklyPrintReminderPopup()
+  }
+
+  scheduleWeeklyPrintReminder()
+}
+
+function scheduleWeeklyPrintReminder(delayOverrideMs) {
+  if (weeklyPrintReminderState.timerId !== null) {
+    window.clearTimeout(weeklyPrintReminderState.timerId)
+    weeklyPrintReminderState.timerId = null
+  }
+
+  const delayMs = Number.isFinite(delayOverrideMs)
+    ? Math.max(0, delayOverrideMs)
+    : getWeeklyPrintReminderDelay()
+
+  weeklyPrintReminderState.timerId = window.setTimeout(runWeeklyPrintReminderCheck, delayMs)
 }
 
 function ensureDailyLogEmptyState() {
@@ -2784,12 +3041,14 @@ function getDefaultAppData() {
       weeklyReportSavePath: "",
       dailyReportAutoSendTime: "",
       mailBody: "",
+      holidayDates: [],
       dailyReportLastAutoSentDate: ""
     },
     categories: [],
     dailyLogs: [],
     dailyReportNotes: {},
-    weeklyReportNotes: {}
+    weeklyReportNotes: {},
+    weeklyPrintReminderHistory: {}
   }
 }
 
@@ -2813,6 +3072,7 @@ function normalizeAppData(rawData) {
     weeklyReportSavePath: sanitizeProfileField(rawData.userProfile?.weeklyReportSavePath),
     dailyReportAutoSendTime: sanitizeProfileField(rawData.userProfile?.dailyReportAutoSendTime),
     mailBody: sanitizeProfileTextAreaField(rawData.userProfile?.mailBody),
+    holidayDates: sanitizeHolidayDateList(rawData.userProfile?.holidayDates),
     dailyReportLastAutoSentDate: sanitizeProfileField(rawData.userProfile?.dailyReportLastAutoSentDate)
   }
   const dailyReportNotes = {}
@@ -2930,7 +3190,8 @@ function normalizeAppData(rawData) {
     categories,
     dailyLogs,
     dailyReportNotes,
-    weeklyReportNotes
+    weeklyReportNotes,
+    weeklyPrintReminderHistory: normalizeWeeklyPrintReminderHistory(rawData.weeklyPrintReminderHistory)
   }
 }
 
@@ -2945,6 +3206,7 @@ function applyAppDataToDom(appData) {
   setUserProfile(safeData.userProfile)
   dailyReportMemoState.notesByDate = { ...safeData.dailyReportNotes }
   weeklyReportMemoState.notesByPeriod = { ...safeData.weeklyReportNotes }
+  setWeeklyPrintReminderHistory(safeData.weeklyPrintReminderHistory)
   const categoryNameById = new Map(
     safeData.categories.map((category) => [category.id, category.label])
   )
@@ -3060,12 +3322,14 @@ function serializeAppData() {
       weeklyReportSavePath: userProfileState.weeklyReportSavePath,
       dailyReportAutoSendTime: userProfileState.dailyReportAutoSendTime,
       mailBody: userProfileState.mailBody,
+      holidayDates: [...userProfileState.holidayDates],
       dailyReportLastAutoSentDate: userProfileState.dailyReportLastAutoSentDate
     },
     categories,
     dailyLogs,
     dailyReportNotes: { ...dailyReportMemoState.notesByDate },
-    weeklyReportNotes: { ...weeklyReportMemoState.notesByPeriod }
+    weeklyReportNotes: { ...weeklyReportMemoState.notesByPeriod },
+    weeklyPrintReminderHistory: { ...weeklyPrintReminderState.historyByWeek }
   }
 }
 
@@ -4600,6 +4864,7 @@ function bindPersonalSettingsModal() {
     weeklyReportSavePathButton,
     dailyReportAutoSendTimeInput,
     mailBodyTextarea,
+    holidayDatesTextarea,
     closeButton,
     cancelButton,
     submitButton
@@ -4619,6 +4884,7 @@ function bindPersonalSettingsModal() {
     weeklyReportSavePathButton,
     dailyReportAutoSendTimeInput,
     mailBodyTextarea,
+    holidayDatesTextarea,
     closeButton,
     cancelButton,
     submitButton
@@ -4692,6 +4958,13 @@ function bindPersonalSettingsModal() {
     }
   })
 
+  holidayDatesTextarea.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault()
+      closeAndFocus()
+    }
+  })
+
   modal.addEventListener("click", (event) => {
     if (event.target === modal) {
       closeAndFocus()
@@ -4707,6 +4980,46 @@ function bindPersonalSettingsModal() {
   window.appMenu?.onOpenSettings?.(() => {
     openPersonalSettingsModal()
   })
+}
+
+function bindWeeklyPrintReminderPopup() {
+  const {
+    popup,
+    closeButton,
+    dismissButton,
+    openReportButton
+  } = getWeeklyPrintReminderPopupElements()
+  const weeklyButton = document.querySelector("#openWeeklyReportPreviewButton")
+
+  if (!popup || !closeButton || !dismissButton || !openReportButton || !weeklyButton) {
+    return
+  }
+
+  const closePopup = () => {
+    closeWeeklyPrintReminderPopup()
+    scheduleElementFocus(getDefaultFocusableElement())
+  }
+
+  closeButton.addEventListener("click", closePopup)
+  dismissButton.addEventListener("click", closePopup)
+  openReportButton.addEventListener("click", () => {
+    closeWeeklyPrintReminderPopup()
+    openReportPreviewModal({
+      title: "주간 보고서 미리보기",
+      src: getReportTemplateSrc("weekly"),
+      reportType: "weekly",
+      returnFocusElement: openReportButton
+    })
+  })
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !popup.hidden) {
+      event.preventDefault()
+      closePopup()
+    }
+  })
+
+  window.addEventListener("focus", runWeeklyPrintReminderCheck)
 }
 
 function bindTextEditModal() {
@@ -4892,6 +5205,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   bindReportPreviewModal()
   bindReportMemoModal()
   bindCategorySelectModal()
+  bindWeeklyPrintReminderPopup()
   bindCategoryDetailDescription()
   bindCategoryPanelToggle()
   bindCategoryCreation(categoryMap)
@@ -4908,4 +5222,5 @@ window.addEventListener("DOMContentLoaded", async () => {
   renderDailyLog()
   persistAppData()
   scheduleDailyReportAutoSend()
+  runWeeklyPrintReminderCheck()
 })

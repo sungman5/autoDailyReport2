@@ -682,6 +682,53 @@ footer {
     z-index: 1000;
 }
 
+.weeklyReminderPopup[hidden] {
+    display: none !important;
+}
+
+.weeklyReminderPopup {
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+    z-index: 1100;
+    width: min(360px, calc(100vw - 32px));
+    padding: 16px;
+    border: 1px solid rgba(31, 31, 31, 0.1);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.98);
+    box-shadow: 0 20px 48px rgba(0, 0, 0, 0.18);
+}
+
+.weeklyReminderPopupHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.weeklyReminderPopupHeader h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 700;
+}
+
+.weeklyReminderCloseButton {
+    flex-shrink: 0;
+}
+
+.weeklyReminderMessage {
+    margin: 12px 0 0;
+    color: var(--text-strong);
+    line-height: 1.6;
+}
+
+.weeklyReminderActions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 16px;
+}
+
 .modalDialog {
     width: min(420px, 100%);
     border: 1px solid rgba(31, 31, 31, 0.08);
@@ -896,6 +943,23 @@ footer {
     margin: 10px 0 0;
     font-size: 0.82rem;
     color: var(--text-base);
+}
+
+@media (max-width: 640px) {
+    .weeklyReminderPopup {
+        right: 16px;
+        bottom: 16px;
+        width: calc(100vw - 32px);
+    }
+
+    .weeklyReminderActions {
+        flex-direction: column-reverse;
+    }
+
+    .weeklyReminderActions .modalPrimaryButton,
+    .weeklyReminderActions .modalSecondaryButton {
+        width: 100%;
+    }
 }
 
 .categorySelectList {
