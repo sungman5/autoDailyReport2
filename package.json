@@ -1,6 +1,6 @@
 {
   "name": "auto-daily-report2",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Electron-based Windows desktop app scaffold with HTML and CSS entry points.",
   "main": "main.js",
   "author": "",
