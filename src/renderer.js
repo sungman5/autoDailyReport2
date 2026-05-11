@@ -1993,7 +1993,7 @@ function getDefaultCategoryReportStatusText(categoryItems, categoryId) {
     : "진행 중"
 }
 
-function getWeeklyPlanDueDateText(item, reportEndDateText = "") {
+function getWeeklyPlanDueDateText(item) {
   const endDateText = getDailyLogItemEndDate(item)
   if (!endDateText) {
     return "미정"
@@ -2002,7 +2002,7 @@ function getWeeklyPlanDueDateText(item, reportEndDateText = "") {
   return formatDateAsMonthDay(endDateText)
 }
 
-function getWeeklyPlanCategoryDueDateText(categoryItems, reportEndDateText = "", categoryId = "") {
+function getWeeklyPlanCategoryDueDateText(categoryItems, categoryId = "") {
   if (isRecurringCategoryId(categoryId)) {
     return "상시"
   }
@@ -2023,16 +2023,80 @@ function getWeeklyPlanCategoryDueDateText(categoryItems, reportEndDateText = "",
   return formatDateAsMonthDay(endDateTexts[endDateTexts.length - 1])
 }
 
-function isDateTextWithinRange(dateText, startDateText, endDateText) {
-  const safeDateText = sanitizeDailyLogDateText(dateText)
-  return Boolean(safeDateText) && safeDateText >= startDateText && safeDateText <= endDateText
+function doesDateTextRangeOverlap(rangeStartDateText, rangeEndDateText, periodStartDateText, periodEndDateText) {
+  const safeRangeStartDateText = sanitizeDailyLogDateText(rangeStartDateText)
+  const safeRangeEndDateText = sanitizeDailyLogDateText(rangeEndDateText)
+  const safePeriodStartDateText = sanitizeDailyLogDateText(periodStartDateText)
+  const safePeriodEndDateText = sanitizeDailyLogDateText(periodEndDateText)
+
+  if (!safeRangeStartDateText || !safePeriodStartDateText || !safePeriodEndDateText) {
+    return false
+  }
+
+  const normalizedRangeEndDateText = safeRangeEndDateText || "9999-12-31"
+  return safeRangeStartDateText <= safePeriodEndDateText && normalizedRangeEndDateText >= safePeriodStartDateText
+}
+
+function getDailyLogReportDateRange(item) {
+  if (!item) {
+    return null
+  }
+
+  const logDateText = getItemLogDate(item)
+  const startDateText = getDailyLogItemStartDate(item) || logDateText
+  if (!startDateText) {
+    return null
+  }
+
+  let endDateText = ""
+
+  if (isRecurringDailyLogItem(item)) {
+    endDateText = logDateText
+  } else if (item.dataset.isChecked === "true") {
+    endDateText = getDailyLogItemCompletedAt(item) || getDailyLogItemEndDate(item) || logDateText
+  } else {
+    endDateText = getDailyLogItemEndDate(item)
+  }
+
+  if (endDateText && endDateText < startDateText) {
+    endDateText = startDateText
+  }
+
+  return {
+    startDateText,
+    endDateText
+  }
+}
+
+function shouldIncludeInDailyReport(item, reportDateText) {
+  const reportRange = getDailyLogReportDateRange(item)
+  if (!reportRange) {
+    return false
+  }
+
+  return doesDateTextRangeOverlap(
+    reportRange.startDateText,
+    reportRange.endDateText,
+    reportDateText,
+    reportDateText
+  )
 }
 
 function shouldIncludeInWeeklyReport(item, startDateText, endDateText) {
-  return isDateTextWithinRange(getItemLogDate(item), startDateText, endDateText)
+  const reportRange = getDailyLogReportDateRange(item)
+  if (!reportRange) {
+    return false
+  }
+
+  return doesDateTextRangeOverlap(
+    reportRange.startDateText,
+    reportRange.endDateText,
+    startDateText,
+    endDateText
+  )
 }
 
-function shouldIncludeInWeeklyPlan(item, reportEndDateText, planStartDateText, planEndDateText) {
+function shouldIncludeInWeeklyPlan(item, planStartDateText, planEndDateText) {
   if (item.dataset.isChecked === "true") {
     return false
   }
@@ -2041,17 +2105,16 @@ function shouldIncludeInWeeklyPlan(item, reportEndDateText, planStartDateText, p
     return !isRetiredRecurringDailyLogItem(item)
   }
 
-  const startDateText = getDailyLogItemStartDate(item)
-  const endDateText = getDailyLogItemEndDate(item)
-
-  if (startDateText && planEndDateText && startDateText > planEndDateText) {
+  const reportRange = getDailyLogReportDateRange(item)
+  if (!reportRange) {
     return false
   }
 
-  return (
-    isDateTextWithinRange(startDateText, planStartDateText, planEndDateText) ||
-    !endDateText ||
-    endDateText > reportEndDateText
+  return doesDateTextRangeOverlap(
+    reportRange.startDateText,
+    reportRange.endDateText,
+    planStartDateText,
+    planEndDateText
   )
 }
 
@@ -2321,7 +2384,7 @@ function getTodayDailyReportEntries() {
 
   const todayItems = getDailyLogItems()
     .slice()
-    .filter((item) => !isDailyLogSnapshotItem(item) && getItemLogDate(item) === todayDateText)
+    .filter((item) => !isDailyLogSnapshotItem(item) && shouldIncludeInDailyReport(item, todayDateText))
 
   return buildGroupedReportEntries(getSortedReportLogItems(todayItems))
 }
@@ -2344,7 +2407,6 @@ function getWeeklyReportEntries() {
 }
 
 function getCurrentWorkWeekPlanReportEntries() {
-  const { endDateText } = getWeeklyReportDateRange()
   const {
     startDateText: planStartDateText,
     endDateText: planEndDateText
@@ -2353,18 +2415,18 @@ function getCurrentWorkWeekPlanReportEntries() {
     .slice()
     .filter((item) =>
       !isDailyLogSnapshotItem(item) &&
-      shouldIncludeInWeeklyPlan(item, endDateText, planStartDateText, planEndDateText)
+      shouldIncludeInWeeklyPlan(item, planStartDateText, planEndDateText)
     )
 
   return buildWeeklyCategorySummaryEntries(getSortedReportLogItems(plannedItems), {
     getStatusText: (categoryItems, categoryId) =>
-      getWeeklyPlanCategoryDueDateText(categoryItems, endDateText, categoryId),
+      getWeeklyPlanCategoryDueDateText(categoryItems, categoryId),
     getNoteText: (categoryItems, categoryId) => getWeeklyCategorySummaryNoteText(categoryItems, {
       categoryId,
       sortItems: (sourceItems) =>
         sourceItems.slice().sort((left, right) => compareItemsByDate(left, right))
     }),
-    getStandaloneStatusText: (item) => getWeeklyPlanDueDateText(item, endDateText),
+    getStandaloneStatusText: (item) => getWeeklyPlanDueDateText(item),
     getStandaloneNoteText: (item) => getDailyLogItemNote(item)
   })
 }
@@ -3861,6 +3923,38 @@ function compareArchivedDailyLogDisplayItems(a, b) {
   return getItemLogOrder(a) - getItemLogOrder(b)
 }
 
+function buildTodayDailyLogGroups(dateItems, todayDateText, isArchivedSelection = false) {
+  const sortedDateItems = dateItems
+    .slice()
+    .sort(isArchivedSelection ? compareArchivedDailyLogDisplayItems : compareTodayDailyLogDisplayItems)
+  const todayWorkItems = []
+  const scheduledItems = []
+
+  sortedDateItems.forEach((item) => {
+    if (isFutureStartDailyLogItem(item, todayDateText)) {
+      scheduledItems.push(item)
+      return
+    }
+
+    if (shouldIncludeInDailyReport(item, todayDateText)) {
+      todayWorkItems.push(item)
+    }
+  })
+
+  return [
+    {
+      label: "오늘 업무",
+      className: "dailyLogGroupToday",
+      items: todayWorkItems
+    },
+    {
+      label: "예정 업무",
+      className: "dailyLogGroupScheduled",
+      items: scheduledItems
+    }
+  ].filter((group) => group.items.length > 0)
+}
+
 function createDailyLogGroup(label) {
   const group = document.createElement("div")
   group.className = "dailyLogGroup"
@@ -4265,18 +4359,23 @@ function renderDailyLog() {
     })
 
   itemsByDate.forEach((dateItems, dateLabel) => {
-    const displayLabel = dateLabel === todayDateText ? "오늘" : dateLabel
-    const { group, list } = createDailyLogGroup(displayLabel)
     if (dateLabel === todayDateText) {
-      group.classList.add("dailyLogGroupToday")
+      buildTodayDailyLogGroups(dateItems, todayDateText, isArchivedSelection).forEach(({ label, className, items }) => {
+        const { group, list } = createDailyLogGroup(label)
+        group.classList.add(className)
+        items.forEach((item) => {
+          syncDailyLogItemRenderState(item, todayDateText)
+          list.append(item)
+        })
+        fragment.append(group)
+      })
+      return
     }
+
+    const { group, list } = createDailyLogGroup(dateLabel)
     const sortedDateItems = dateItems
       .slice()
-      .sort(isArchivedSelection
-        ? compareArchivedDailyLogDisplayItems
-        : dateLabel === todayDateText
-          ? compareTodayDailyLogDisplayItems
-          : compareDailyLogDisplayItems)
+      .sort(isArchivedSelection ? compareArchivedDailyLogDisplayItems : compareDailyLogDisplayItems)
 
     sortedDateItems.forEach((item) => {
       syncDailyLogItemRenderState(item, todayDateText)

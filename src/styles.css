@@ -392,6 +392,10 @@ body > header h1 {
     color: blue;
 }
 
+#dailyLogGroups > .dailyLogGroup.dailyLogGroupScheduled > p:first-child {
+    color: #7a4a00;
+}
+
 #dailyLog .itemList {
     display: grid;
     gap: 8px;
