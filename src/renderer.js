@@ -75,7 +75,8 @@ const userProfileState = {
   dailyReportAutoSendTime: "",
   mailBody: "",
   holidayDates: [],
-  dailyReportLastAutoSentDate: ""
+  dailyReportLastAutoSentDate: "",
+  dailyReportLastManualSentDate: ""
 }
 
 const contextMenuState = {
@@ -110,7 +111,8 @@ const reportMemoModalState = {
 
 const dailyReportAutoSendState = {
   timerId: null,
-  isSending: false
+  isSending: false,
+  lastFailureMessage: ""
 }
 
 const weeklyPrintReminderState = {
@@ -1623,6 +1625,7 @@ function sanitizeProfileTextAreaField(value) {
 
 function setUserProfile(profile = {}) {
   const hasLastAutoSentDate = Object.prototype.hasOwnProperty.call(profile, "dailyReportLastAutoSentDate")
+  const hasLastManualSentDate = Object.prototype.hasOwnProperty.call(profile, "dailyReportLastManualSentDate")
   const hasHolidayDates = Object.prototype.hasOwnProperty.call(profile, "holidayDates")
 
   userProfileState.name = sanitizeProfileField(profile.name)
@@ -1641,6 +1644,9 @@ function setUserProfile(profile = {}) {
   userProfileState.dailyReportLastAutoSentDate = hasLastAutoSentDate
     ? sanitizeProfileField(profile.dailyReportLastAutoSentDate)
     : userProfileState.dailyReportLastAutoSentDate
+  userProfileState.dailyReportLastManualSentDate = hasLastManualSentDate
+    ? sanitizeProfileField(profile.dailyReportLastManualSentDate)
+    : userProfileState.dailyReportLastManualSentDate
 }
 
 function openPersonalSettingsModal() {
@@ -2726,6 +2732,7 @@ async function saveReportPdfFromFrame(reportType, frame) {
 
 async function saveAndSendReport(reportType, options = {}) {
   const frame = options.frame ?? getReportPreviewModalElements().frame
+  const sendSource = options.sendSource === "auto" ? "auto" : "manual"
   validateReportActionSettings(reportType)
 
   if (reportType === "daily") {
@@ -2768,8 +2775,15 @@ async function saveAndSendReport(reportType, options = {}) {
     })
 
     if (reportType === "daily") {
-      userProfileState.dailyReportLastAutoSentDate = getTodayDateText()
-      persistAppData()
+      const sentDateText = getTodayDateText()
+      dailyReportAutoSendState.lastFailureMessage = ""
+      if (sendSource === "auto") {
+        userProfileState.dailyReportLastAutoSentDate = sentDateText
+      } else {
+        userProfileState.dailyReportLastManualSentDate = sentDateText
+      }
+
+      await persistAppData()
     }
 
     return saveResult
@@ -2836,10 +2850,18 @@ async function runDailyReportAutoSendIfDue() {
 
   try {
     frame = await renderReportInTemporaryFrame("daily")
-    await saveAndSendReport("daily", { silent: true, frame })
+    await saveAndSendReport("daily", { frame, sendSource: "auto" })
   } catch (error) {
     shouldRetry = true
     console.error("Failed to auto send daily report.", error)
+    const failureMessage = error?.message || "일일 보고서 자동 발송에 실패했습니다."
+    if (dailyReportAutoSendState.lastFailureMessage !== failureMessage) {
+      dailyReportAutoSendState.lastFailureMessage = failureMessage
+      openInfoModal({
+        title: "일일 보고서 자동 발송 실패",
+        message: `${failureMessage}\n\n1분 후 다시 시도합니다.`
+      })
+    }
   } finally {
     frame?.remove()
     dailyReportAutoSendState.isSending = false
@@ -3324,7 +3346,8 @@ function getDefaultAppData() {
       dailyReportAutoSendTime: "",
       mailBody: "",
       holidayDates: [],
-      dailyReportLastAutoSentDate: ""
+      dailyReportLastAutoSentDate: "",
+      dailyReportLastManualSentDate: ""
     },
     categories: [],
     dailyLogs: [],
@@ -3360,7 +3383,8 @@ function normalizeAppData(rawData) {
     dailyReportAutoSendTime: sanitizeProfileField(rawData.userProfile?.dailyReportAutoSendTime),
     mailBody: sanitizeProfileTextAreaField(rawData.userProfile?.mailBody),
     holidayDates: sanitizeHolidayDateList(rawData.userProfile?.holidayDates),
-    dailyReportLastAutoSentDate: sanitizeProfileField(rawData.userProfile?.dailyReportLastAutoSentDate)
+    dailyReportLastAutoSentDate: sanitizeProfileField(rawData.userProfile?.dailyReportLastAutoSentDate),
+    dailyReportLastManualSentDate: sanitizeProfileField(rawData.userProfile?.dailyReportLastManualSentDate)
   }
   const dailyReportNotes = {}
 
@@ -3624,7 +3648,8 @@ function serializeAppData() {
       dailyReportAutoSendTime: userProfileState.dailyReportAutoSendTime,
       mailBody: userProfileState.mailBody,
       holidayDates: [...userProfileState.holidayDates],
-      dailyReportLastAutoSentDate: userProfileState.dailyReportLastAutoSentDate
+      dailyReportLastAutoSentDate: userProfileState.dailyReportLastAutoSentDate,
+      dailyReportLastManualSentDate: userProfileState.dailyReportLastManualSentDate
     },
     categories,
     dailyLogs,

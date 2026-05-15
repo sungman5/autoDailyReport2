@@ -8,6 +8,7 @@ const { autoUpdater } = require("electron-updater");
 
 const SMTP_HOST = "smtp.gmail.com";
 const SMTP_PORT = 465;
+const SMTP_TIMEOUT_MS = 30 * 1000;
 const UPDATE_CHECK_DELAY_MS = 3000;
 const DEFERRED_UPDATE_CHECK_DELAY_MS = 250;
 const FIXED_USER_DATA_DIRNAME = "auto-daily-report2";
@@ -650,11 +651,33 @@ function createSmtpClient() {
     const socket = tls.connect(SMTP_PORT, SMTP_HOST, { servername: SMTP_HOST });
     let buffer = "";
     const pendingResponses = [];
+    let hasResolvedClient = false;
+    let hasClosed = false;
 
     const cleanup = () => {
       socket.removeAllListeners("data");
       socket.removeAllListeners("error");
       socket.removeAllListeners("end");
+      socket.removeAllListeners("timeout");
+    };
+
+    const rejectPendingResponses = (error) => {
+      while (pendingResponses.length > 0) {
+        pendingResponses.shift().reject(error);
+      }
+    };
+
+    const fail = (error) => {
+      if (hasClosed) {
+        return;
+      }
+
+      hasClosed = true;
+      cleanup();
+      rejectPendingResponses(error);
+      if (!hasResolvedClient) {
+        reject(error);
+      }
     };
 
     const readResponse = () => new Promise((responseResolve, responseReject) => {
@@ -705,27 +728,27 @@ function createSmtpClient() {
     });
 
     socket.on("error", (error) => {
-      cleanup();
-      while (pendingResponses.length > 0) {
-        pendingResponses.shift().reject(error);
-      }
-      reject(error);
+      fail(error);
     });
 
     socket.on("end", () => {
-      const error = new Error("SMTP connection closed.");
-      while (pendingResponses.length > 0) {
-        pendingResponses.shift().reject(error);
-      }
+      fail(new Error("SMTP connection closed."));
+    });
+
+    socket.setTimeout(SMTP_TIMEOUT_MS);
+    socket.on("timeout", () => {
+      const error = new Error(`SMTP timed out after ${Math.floor(SMTP_TIMEOUT_MS / 1000)} seconds.`);
+      socket.destroy(error);
+      fail(error);
     });
 
     socket.on("secureConnect", async () => {
       try {
         await readResponse();
+        hasResolvedClient = true;
         resolve({ socket, sendCommand, readResponse, cleanup });
       } catch (error) {
-        cleanup();
-        reject(error);
+        fail(error);
       }
     });
   });
